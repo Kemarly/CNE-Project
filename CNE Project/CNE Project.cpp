@@ -1,8 +1,6 @@
 #include <iostream>
 #include <thread>
 #include <map>
-#ifndef CNE_PROJECT
-#define CNE_PROJECT
 #include <vector>
 #include <winsock2.h>
 #include <WS2tcpip.h>
@@ -18,11 +16,11 @@ vector<string> publicMessages;
 int tcp_recv_whole(SOCKET s, char* buf, int len);
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
 void ServerCode(int port, int capacity, char commandChar);
-void HandleCommand(const string& command, SOCKET clientSocket);
-void ProcessLogin(const string& username, const string& password, SOCKET clientSocket);
-void BroadcastMessage(const string& message, SOCKET senderSocket);
-void SendClientList(SOCKET clientSocket);
-void SavePublicMessage(const string& message);
+int HandleCommand(const string& command, SOCKET clientSocket);
+int ProcessLogin(const string& username, const string& password, SOCKET clientSocket);
+int BroadcastMessage(const string& message, SOCKET senderSocket);
+int SendClientList(SOCKET clientSocket);
+int SavePublicMessage(const string& message);
 
 const int MAX_CLIENTS = 5;
 
@@ -117,7 +115,7 @@ void ServerCode(int port, int capacity, char commandChar)
 	closesocket(clientSocket);
 }
 
-void HandleCommand(const string& command, SOCKET clientSocket)
+int HandleCommand(const string& command, SOCKET clientSocket)
 {
 	if (command.empty()) return;
 
@@ -136,7 +134,7 @@ void HandleCommand(const string& command, SOCKET clientSocket)
 				string password = args.substr(spacePos + 1);
 			}
 		}
-		else if (args.find("login") == 0)
+		else if (args.find("login") == 1)
 		{
 			//~login
 			size_t spacePos = args.find(' ');
@@ -147,15 +145,15 @@ void HandleCommand(const string& command, SOCKET clientSocket)
 				void ProcessLogin(const string & username, const string & password, SOCKET clientSocket);
 			}
 		}
-		else if (args.find("send") == 0)
+		else if (args.find("send") == 2)
 		{
 			void SendClientList(SOCKET clientSocket);
 		}
-		else if (args.find("getlist") == 0)
+		else if (args.find("getlist") == 3)
 		{
 			// ~getlist .
 		}
-		else if (args.find("logout") == 0)
+		else if (args.find("logout") == 4)
 		{
 			// ~logout
 		}
@@ -169,19 +167,19 @@ void HandleCommand(const string& command, SOCKET clientSocket)
 	}
 }
 
-void ProcessLogin(const string& username, const string& password, SOCKET clientSocket)
+int ProcessLogin(const string& username, const string& password, SOCKET clientSocket)
 {
 }
 
-void BroadcastMessage(const string& message, SOCKET senderSocket)
+int BroadcastMessage(const string& message, SOCKET senderSocket)
 {
 }
 
-void SendClientList(SOCKET clientSocket)
+int SendClientList(SOCKET clientSocket)
 {
 }
 
-void SavePublicMessage(const string& message)
+int SavePublicMessage(const string& message)
 {
 }
 
@@ -239,7 +237,7 @@ int main()
 	WSADATA wsData;
 	WORD ver = MAKEWORD(2, 2);
 	int wsOk = WSAStartup(ver, &wsData);
-	if (wsOk != 0) { cout << "Winstock not initialize." << endl; return; }
+	if (wsOk != 0) { cout << "Winstock not initialize." << endl; return -1; }
 	int choice;
 	do
 	{
@@ -273,5 +271,3 @@ int main()
 	WSACleanup();
 	return 0;
 }
-
-#endif  // CNE_PROJECT
