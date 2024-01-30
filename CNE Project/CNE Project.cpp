@@ -1,8 +1,8 @@
 #include <iostream>
 #include <thread>
 #include <map>
-#ifndef CNE Project
-#define CNE Project
+#ifndef CNE_PROJECT
+#define CNE_PROJECT
 #include <vector>
 #include <winsock2.h>
 #include <WS2tcpip.h>
@@ -161,7 +161,7 @@ void HandleCommand(const string& command, SOCKET clientSocket)
 		}
 		else
 		{
-			
+
 		}
 		break;
 	default:
@@ -191,7 +191,7 @@ void ClientCode(void)
 	//socket
 	SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (clientSocket == INVALID_SOCKET) { cout << "Socket not created." << endl; return; }
-	
+
 	//bind
 	sockaddr_in serverAddr;
 	serverAddr.sin_family = AF_INET;
@@ -273,4 +273,5 @@ int main()
 	WSACleanup();
 	return 0;
 }
-#endif CNE Project
+
+#endif  // CNE_PROJECT
