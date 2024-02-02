@@ -78,7 +78,7 @@ void sendMessage(char* data, int32_t length)
 	//Communication
 	uint8_t recvSize = static_cast<uint8_t>(length);
 
-	int result = tcp_recv_whole(ComSocket, (char*)&data, 1);
+	int result = tcp_recv_whole(ComSocket, (char*)data, 1);
 	if ((result == SOCKET_ERROR) || (result == 0))
 	{
 		int error = WSAGetLastError();
@@ -99,7 +99,7 @@ void readMessage(char* buffer, int32_t size)
 {
 	uint8_t recvSize = 0;
 	SOCKET ComSocket = accept(listenSocket, NULL, NULL);
-	int result = tcp_recv_whole(ComSocket, (char*)&size, 1);
+	int result = tcp_recv_whole(ComSocket, (char*)size, 1);
 	if ((result == SOCKET_ERROR) || (result == 0))
 	{
 		int error = WSAGetLastError();
@@ -167,6 +167,7 @@ int SavePublicMessage(const string& message)
 {
 	return 0;
 }
+
 int initUDP(int udpPort) {
 	udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (udpSocket == INVALID_SOCKET) {
@@ -216,9 +217,10 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 	//listen
 	listen(listening, SOMAXCONN);
 	cout << "Server listening: " << port << endl;
-	FD_ZERO(&masterSet);
-	FD_SET(listenSocket, &masterSet);
-	maxSocket = listenSocket;
+	FD_ZERO(&masterSet); 
+	FD_SET(listenSocket, &masterSet);  
+	FD_SET(udpSocket, &masterSet); 
+	maxSocket = max(listenSocket, udpSocket); 
 
 	//connection
 	sockaddr_in client;
@@ -327,6 +329,7 @@ int HandleCommand(const string& command)
 }
 void serverRun(int port, int capacity, char commandChar, int udpPort)
 {
+	char buffer[4096];
 	bool serverActive=true;
 	while (serverActive)
 	{
@@ -335,36 +338,34 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 
 		//find ready sockets
 		int socketCount = select(0, &readySet, nullptr, nullptr, nullptr);
-
 		if (socketCount == SOCKET_ERROR)
 		{
 			cerr << "Select failed." << endl;
 			break;
 		}
-
 		for (int i = 0; i < maxSocket; ++i)
 		{
 			//socket is in readySet
 			if (FD_ISSET(i, &readySet))
 			{
-				// Check if it's the listening socket
+				//Check if it's the listening socket
 				if (i == listenSocket)
 				{
-					//new connection
 					sockaddr_in clientAddr;
 					int clientSize = sizeof(clientAddr);
 					SOCKET newSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientSize);
 
 					if (newSocket != INVALID_SOCKET)
 					{
-						//Add new connection to masterSet
+						// Add new connection to masterSet
 						FD_SET(newSocket, &masterSet);
 
-						//Update maxSocket
+						// Update maxSocket
 						if (newSocket > maxSocket)
 						{
 							maxSocket = newSocket;
 						}
+
 						cout << "New connection accepted." << endl;
 					}
 					else
@@ -390,7 +391,7 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 							cerr << "Recv error." << endl;
 						}
 
-						//Remove socket from masterSet
+						// Remove socket from masterSet
 						FD_CLR(i, &masterSet);
 						closesocket(i);
 					}
@@ -402,13 +403,40 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 			}
 		}
 	}
+	//stop server
+	serverActive = false;
 
 	//Close sockets
 	for (int i = 0; i <= maxSocket; ++i)
 	{
 		if (FD_ISSET(i, &masterSet))
 		{
-			closesocket(i);
+			if (i == listenSocket || i == udpSocket)
+			{
+				// Handle the listening and UDP sockets separately if needed
+				continue;
+			}
+
+			int bytesRead = recv(i, buffer, sizeof(buffer), 0);
+			if (bytesRead <= 0)
+			{
+				if (bytesRead == 0)
+				{
+					cout << "Client disconnected." << endl;
+				}
+				else
+				{
+					cerr << "Recv error." << endl;
+				}
+
+				// Remove socket from masterSet
+				FD_CLR(i, &masterSet);
+				closesocket(i);
+			}
+			else
+			{
+				cout << "Received client data: " << buffer << endl;
+			}
 		}
 	}
 }
@@ -461,6 +489,7 @@ void ClientCode(void)
 	//close sock
 	closesocket(clientSocket);
 }
+
 int main()
 {
 	//winsock
