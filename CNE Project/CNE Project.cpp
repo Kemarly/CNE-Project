@@ -1,7 +1,13 @@
+#pragma once
 #include <iostream>
 #include <thread>
 #include <map>
+#include <unordered_map>
 #include <vector>
+#include <string>
+#include <cstring>
+#include <chrono>
+#include <algorithm>
 #include <winsock2.h>
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
@@ -9,18 +15,33 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 
 using namespace std;
 
-map<string, SOCKET> activeClients;
-map<string, string> userCredentials;
-vector<string> publicMessages;
-
+SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+SOCKET ComSocket = accept(listenSocket, NULL, NULL);
+unordered_map<string, string> userCredentials;
+const int MAX_CLIENTS = 5;
+WSADATA wsaData;
+SOCKET udpSocket;
+sockaddr_in broadcastAddr;
+thread udpBroadcastThread;
+bool udpBroadcastRunning;
+fd_set masterSet;  //Set sockets
+fd_set readySet;   //Sockets ready
+int maxSocket;
+void ServerCode(int port, int capacity, char commandChar, int udpPort);
 int tcp_recv_whole(SOCKET s, char* buf, int len);
-int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
-void ServerCode(int port, int capacity, char commandChar);
-int HandleCommand(const string& command, SOCKET clientSocket);
+int readMessage(char* buffer, int32_t size);
+int sendMessage(char* data, int32_t length);
+string GetHelpMessage();
+int RegisterUser(const string& username, const string& password);
+int HandleCommand(const string& command);
 int ProcessLogin(const string& username, const string& password, SOCKET clientSocket);
 int BroadcastMessage(const string& message, SOCKET senderSocket);
 int SendClientList(SOCKET clientSocket);
 int SavePublicMessage(const string& message);
+int initUDP(int udpPort);
+void startUDPBroadcast();
+void stopUDPBroadcast();
+void stop();
 
 const int MAX_CLIENTS = 5;
 
@@ -38,7 +59,6 @@ int tcp_recv_whole(SOCKET s, char* buf, int len)
 	} while (total < len);
 	return total;
 }
-
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 {
 	int result;
@@ -55,11 +75,146 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 	return bytesSent;
 }
 
-void ServerCode(int port, int capacity, char commandChar)
+int sendMessage(char* data, int32_t length)
 {
+	//Communication
+	uint8_t recvSize = static_cast<uint8_t>(length);
+
+	int result = tcp_recv_whole(ComSocket, (char*)&data, 1);
+	if ((result == SOCKET_ERROR) || (result == 0))
+	{
+		int error = WSAGetLastError();
+		printf("Disconnected");
+	}
+	char* buffer = new char[length];
+
+	result = tcp_recv_whole(ComSocket, (char*)buffer, length);
+	if ((result == SOCKET_ERROR) || (result == 0))
+	{
+		int error = WSAGetLastError();
+		printf("Disconnected");
+	}
+	delete[] buffer;
+	printf("Success");
+}
+int readMessage(char* buffer, int32_t size)
+{
+	uint8_t recvSize = 0;
+	SOCKET ComSocket = accept(listenSocket, NULL, NULL);
+	int result = tcp_recv_whole(ComSocket, (char*)&size, 1);
+	if ((result == SOCKET_ERROR) || (result == 0))
+	{
+		int error = WSAGetLastError();
+		printf("Disconnected");
+	}
+	buffer = new char[size];
+
+	result = tcp_recv_whole(ComSocket, (char*)buffer, size);
+	if ((result == SOCKET_ERROR) || (result == 0))
+	{
+		int error = WSAGetLastError();
+		printf("Disconnected");
+	}
+	delete[] buffer;
+	printf("Success");
+}
+
+
+string GetHelpMessage()
+{
+	string helpMessage = "Available commands:\n";
+	helpMessage += "~help - Display available commands\n";
+	helpMessage += "~register - username password - Register a new user\n";
+	helpMessage += "~login - username password - Login with user account\n";
+	helpMessage += "~send - Display available commands\n";
+	helpMessage += "~getlist - Display available commands\n";
+	helpMessage += "~logout - Logs out of user account\n";
+
+	return helpMessage;
+}
+int RegisterUser(const string& username, const string& password)
+{
+	if (userCredentials.size() >= MAX_CLIENTS)
+	{
+		string CAP_REACHED = "Max Client Capacity.";
+		int CAPACITY_REACHED = stoi(CAP_REACHED);
+		return CAPACITY_REACHED;
+	}
+
+	// Check if the username is already taken
+	if (userCredentials.find(username) != userCredentials.end())
+	{
+		string USER_TAKEN = "Max Client Capacity.";
+		int USERNAME_TAKEN = stoi(USER_TAKEN);
+		return USERNAME_TAKEN;
+	}
+
+	// Register the user
+	userCredentials[username] = password;
+	printf("Success");
+}
+int ProcessLogin(const string& username, const string& password, SOCKET clientSocket)
+{
+	return 0;
+}
+int BroadcastMessage(const string& message, SOCKET senderSocket)
+{
+	return 0;
+}
+int SendClientList(SOCKET clientSocket)
+{
+	return 0;
+}
+int SavePublicMessage(const string& message)
+{
+	return 0;
+}
+int initUDP(int udpPort) {
+	udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (udpSocket == INVALID_SOCKET) {
+		cout << "UDP Socket creation failed." << std::endl;
+		return 0;
+	}
+
+	//make broadcast address 
+	memset(&broadcastAddr, 0, sizeof(broadcastAddr));
+	broadcastAddr.sin_family = AF_INET;
+	broadcastAddr.sin_port = htons(udpPort);
+	broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+	return 1;
+}
+void startUDPBroadcast()
+{
+	udpBroadcastRunning = true;
+	udpBroadcastThread = thread([this]()
+		{
+			while (udpBroadcastRunning) {
+				//message
+				string broadcastMessage = "Broadcasting from Server";
+
+				//Send message
+				sendto(udpSocket, broadcastMessage.c_str(), broadcastMessage.length(), 0, (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
+
+				//wait x seconds
+				this_thread::sleep_for(chrono::seconds(5));
+			}
+		});
+	udpBroadcastThread.detach();
+}
+
+void ServerCode(int port, int capacity, char commandChar, int udpPort)
+{
+	//Winsock
+	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+	{
+		cerr << "WSAStartup failed." << endl; return;
+	}
+	//udp
+	if (!initUDP(udpPort)) { cout << "UDP initialization failed." << endl; }
+
 	//socket
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
-	if (listening == INVALID_SOCKET) { cout << "Socket not created." << endl; return; }
+	if (listening == INVALID_SOCKET) { cout << "Socket not created." << endl; WSACleanup(); printf("Success"); }
 
 	//bind
 	sockaddr_in serverAddr;
@@ -71,12 +226,15 @@ void ServerCode(int port, int capacity, char commandChar)
 		cout << "Bind failed." << endl;
 		closesocket(listening);
 		WSACleanup();
-		return;
+
 	}
 
 	//listen
 	listen(listening, SOMAXCONN);
 	cout << "Server listening: " << port << endl;
+	FD_ZERO(&masterSet);
+	FD_SET(listenSocket, &masterSet);
+	maxSocket = listenSocket;
 
 	//connection
 	sockaddr_in client;
@@ -115,15 +273,20 @@ void ServerCode(int port, int capacity, char commandChar)
 	closesocket(clientSocket);
 }
 
-int HandleCommand(const string& command, SOCKET clientSocket)
+int HandleCommand(const string& command)
 {
-	if (command.empty()) return;
-
+	if (command.empty()) return 0;
 	char commandChar = command[0];
 	string args = command.substr(1);
 	switch (commandChar)
 	{
 	case '~':
+
+		if (args.find("help") != string::npos) {
+			string helpMessage = GetHelpMessage();
+			const char* helpChar = helpMessage.c_str();
+			delete[] helpChar;
+		}
 		if (args.find("register") == 0)
 		{
 			// ~register
@@ -134,7 +297,7 @@ int HandleCommand(const string& command, SOCKET clientSocket)
 				string password = args.substr(spacePos + 1);
 			}
 		}
-		else if (args.find("login") == 1)
+		else if (args.find("login") == 0)
 		{
 			//~login
 			size_t spacePos = args.find(' ');
@@ -145,25 +308,31 @@ int HandleCommand(const string& command, SOCKET clientSocket)
 				void ProcessLogin(const string & username, const string & password, SOCKET clientSocket);
 			}
 		}
-		else if (args.find("send") == 2)
+		else if (args.find("send") == 0)
 		{
+			size_t spacePos = args.find(' ');
+
 			void SendClientList(SOCKET clientSocket);
 		}
-		else if (args.find("getlist") == 3)
+		else if (args.find("getlist") == 0)
 		{
-			// ~getlist .
+			size_t spacePos = args.find(' ');
+
+			// ~getlist
 		}
-		else if (args.find("logout") == 4)
+		else if (args.find("logout") == 0)
 		{
+			size_t spacePos = args.find(' ');
+
 			// ~logout
 		}
 		else
 		{
-
+			printf("Please enter a command");
 		}
 		break;
 	default:
-		BroadcastMessage(command, clientSocket); break;
+		BroadcastMessage(command, ComSocket); break;
 	}
 }
 
@@ -252,13 +421,14 @@ int main()
 	{
 		int port, capacity;
 		char commandChar;
+		int udpPort;
 		cout << "Port: ";
 		cin >> port;
 		cout << "Capacity: ";
 		cin >> capacity;
 		cout << "Command character: ";
 		cin >> commandChar;
-		ServerCode(port, capacity, commandChar);
+		ServerCode(port, capacity, commandChar, udpPort);
 	}
 
 	//Client
@@ -270,4 +440,18 @@ int main()
 	//shutdown winsock
 	WSACleanup();
 	return 0;
+}
+void stopUDPBroadcast()
+{
+	udpBroadcastRunning = false;
+	udpBroadcastThread.join();
+	closesocket(udpSocket);
+}
+void stop()
+{
+	shutdown(listenSocket, SD_BOTH);
+	closesocket(listenSocket);
+	shutdown(ComSocket, SD_BOTH);
+	closesocket(ComSocket);
+	WSACleanup();
 }
