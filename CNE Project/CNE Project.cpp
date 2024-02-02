@@ -34,10 +34,6 @@ void sendMessage(char* data, int32_t length);
 string GetHelpMessage();
 void RegisterUser(const string& username, const string& password);
 void HandleCommand(const string& command);
-//int ProcessLogin(const string& username, const string& password, SOCKET clientSocket);
-//int BroadcastMessage(const string& message, SOCKET senderSocket);
-//int SendClientList(SOCKET clientSocket);
-//int SavePublicMessage(const string& message);
 int initUDP(int udpPort);
 void startUDPBroadcast();
 void stopUDPBroadcast();
@@ -222,7 +218,7 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 	FD_ZERO(&masterSet); 
 	FD_SET(listenSocket, &masterSet);  
 	FD_SET(udpSocket, &masterSet); 
-	maxSocket = max(listenSocket, udpSocket); 
+	//maxSocket = max(listenSocket, udpSocket); 
 
 	//connection
 	sockaddr_in client;
@@ -269,7 +265,7 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 
 void HandleCommand(const string& command)
 {
-	if (command.empty()) printf("Empty");;
+	if (command.empty()) ;
 	char commandChar = command[0];
 	string args = command.substr(1);
 	switch (commandChar)
@@ -329,23 +325,52 @@ void HandleCommand(const string& command)
 		BroadcastMessage(command, ComSocket); break;
 	}
 }
-void serverRun(int port, int capacity, char commandChar, int udpPort)
+void serverRun(int port, int capacity, char commandChar, int udpPort) 
 {
 	char buffer[4096];
 	bool serverActive=true;
-	FD_SET(udpSocket, &masterSet); //udp  socket
+	FD_ZERO(&masterSet);
+	FD_SET(listenSocket, &masterSet); //add socket
+	int numClients=0;
 	while (true)
 	{
-		//masterSet to readySet
+		// masterSet to readySet
 		readySet = masterSet;
 
-		//find ready sockets
-		int socketCount = select(0, &readySet, nullptr, nullptr, nullptr);
+		// find ready sockets
+		int socketCount = select(NULL, &readySet, NULL, NULL, nullptr);
 		if (socketCount == SOCKET_ERROR)
 		{
 			cerr << "Select failed." << endl;
 			break;
 		}
+
+		/*for (int i = 0; i < socketCount, i++)
+		{
+			if (readySet.fd_array[i] == listenSocket)
+			{
+				if (numClients < MAX_CLIENTS)
+				{
+					if (FD_ISSET(listenSocket, &readySet))
+					{
+						SOCKET clientSocket = accept(listenSocket, NULL, NULL);
+						if(clientSocket!=INVALID_SOCKET)
+						{
+							FD_SET(clientSocket, &masterSet);
+							numClients.push_back(clientSocket); //new client to vector
+							numClients++;
+							cout << "New client connected" << endl;
+							string response = "Welcome \nCommand: ";
+							response += commandChar;
+							response += "For list of commands type ~help";
+							sendMessage();
+						}
+						else { cout << "Accept error"; break; }
+					}
+				}
+			}
+		}
+		*/
 
 		for (int i = 0; i <= maxSocket; ++i)
 		{
@@ -393,11 +418,11 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 					{
 						if (bytesRead == 0)
 						{
-							cout << "Client disconnected." << endl;
+							printf("Client disconnected.");
 						}
 						else
 						{
-							cout << "Recv error." << endl;
+							printf("Recv error." );
 						}
 
 						// Remove socket from masterSet
@@ -406,12 +431,12 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 					}
 					else
 					{
-						cout << "Received client data: " << buffer << endl;
+						cout<<"Received client data: " << buffer << endl;
 						HandleCommand(buffer);
 					}
 				}
 			}
-		}
+		}  
 		//stop server
 		//serverActive = false;
 		if (!serverActive)
