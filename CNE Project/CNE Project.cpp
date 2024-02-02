@@ -22,6 +22,8 @@ using namespace std;
 mutex clientMutex; 
 int tcp_recv_whole(SOCKET s, char* buf, int len);
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
+void HandleClient(SOCKET clientSocket, fd_set& readSet);
+
 void ServerCode(void);
 
 int main()
@@ -37,6 +39,11 @@ int main()
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
     int total = 0;
+    int ret = recv(s, buf, 1, 0);
+    if (ret <= 0)
+        return ret;
+
+    uint8_t size = static_cast<uint8_t>(*buf);
 
     do
     {
@@ -53,6 +60,10 @@ int tcp_recv_whole(SOCKET s, char* buf, int len)
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 {
     int result;
+    result = send(skSocket, reinterpret_cast<const char*>(&length), 1, 0);
+    if (result <= 0)
+        return result;
+
     int bytesSent = 0;
 
     while (bytesSent < length)
@@ -67,13 +78,13 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 
     return bytesSent;
 }
-void HandleClient(SOCKET clientSocket)
+void HandleClient(SOCKET clientSocket, fd_set& readSet)
 {
     while (true)
     {
         uint8_t size = 0;
 
-        int result = tcp_recv_whole(clientSocket, (char*)&size, 1);
+        int result = tcp_recv_whole(clientSocket, reinterpret_cast<char*>(&size), 1);
         if ((result == SOCKET_ERROR) || (result == 0))
         {
             std::lock_guard<std::mutex> lock(clientMutex);
@@ -224,7 +235,7 @@ void ServerCode(void)
                     {
                         printf("DEBUG// New connection accepted\n");
                         FD_SET(ComSocket, &readSet);
-                        thread(HandleClient, ComSocket).detach(); 
+                        thread(HandleClient, ComSocket, std::ref(readSet)).detach();
                     }
                 }
                 else
