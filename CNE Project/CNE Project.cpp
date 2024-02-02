@@ -32,8 +32,8 @@ int tcp_recv_whole(SOCKET s, char* buf, int len);
 void readMessage(char* buffer, int32_t size);
 void sendMessage(char* data, int32_t length);
 string GetHelpMessage();
-int RegisterUser(const string& username, const string& password);
-int HandleCommand(const string& command);
+void RegisterUser(const string& username, const string& password);
+void HandleCommand(const string& command);
 //int ProcessLogin(const string& username, const string& password, SOCKET clientSocket);
 //int BroadcastMessage(const string& message, SOCKET senderSocket);
 //int SendClientList(SOCKET clientSocket);
@@ -130,21 +130,23 @@ string GetHelpMessage()
 
 	return helpMessage;
 }
-int RegisterUser(const string& username, const string& password)
+void RegisterUser(const string& username, const string& password)
 {
 	if (userCredentials.size() >= MAX_CLIENTS)
 	{
 		string CAP_REACHED = "Max Client Capacity.";
-		int CAPACITY_REACHED = stoi(CAP_REACHED);
-		return CAPACITY_REACHED;
+		//int CAPACITY_REACHED = stoi(CAP_REACHED);
+		//return CAPACITY_REACHED;
+		printf("Max Client Capacity.");
 	}
 
 	// Check if the username is already taken
 	if (userCredentials.find(username) != userCredentials.end())
 	{
 		string USER_TAKEN = "Max Client Capacity.";
-		int USERNAME_TAKEN = stoi(USER_TAKEN);
-		return USERNAME_TAKEN;
+		//int USERNAME_TAKEN = stoi(USER_TAKEN);
+		//return USERNAME_TAKEN;
+		printf("Max Client Capacity.");
 	}
 
 	// Register the user
@@ -265,9 +267,9 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 	closesocket(clientSocket);
 }
 
-int HandleCommand(const string& command)
+void HandleCommand(const string& command)
 {
-	if (command.empty()) return 0;
+	if (command.empty()) printf("Empty");;
 	char commandChar = command[0];
 	string args = command.substr(1);
 	switch (commandChar)
@@ -331,7 +333,8 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 {
 	char buffer[4096];
 	bool serverActive=true;
-	while (serverActive)
+	FD_SET(udpSocket, &masterSet); //udp  socket
+	while (true)
 	{
 		//masterSet to readySet
 		readySet = masterSet;
@@ -343,29 +346,28 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 			cerr << "Select failed." << endl;
 			break;
 		}
-		for (int i = 0; i < maxSocket; ++i)
+
+		for (int i = 0; i <= maxSocket; ++i)
 		{
-			//socket is in readySet
 			if (FD_ISSET(i, &readySet))
 			{
-				//Check if it's the listening socket
+				// Check if it's the listening socket
 				if (i == listenSocket)
 				{
 					sockaddr_in clientAddr;
 					int clientSize = sizeof(clientAddr);
-					SOCKET newSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientSize);
+					SOCKET newClientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientSize);
 
-					if (newSocket != INVALID_SOCKET)
+					if (newClientSocket != INVALID_SOCKET)
 					{
 						// Add new connection to masterSet
-						FD_SET(newSocket, &masterSet);
+						FD_SET(newClientSocket, &masterSet);
 
 						// Update maxSocket
-						if (newSocket > maxSocket)
+						if (newClientSocket > maxSocket)
 						{
-							maxSocket = newSocket;
+							maxSocket = newClientSocket;
 						}
-
 						cout << "New connection accepted." << endl;
 					}
 					else
@@ -373,9 +375,16 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 						cerr << "Accept failed." << endl;
 					}
 				}
+				else if (i == udpSocket)
+				{
+					sockaddr_in udpClient; 
+					int udpClientSize = sizeof(udpClient); 
+					int bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (sockaddr*)&udpClient, &udpClientSize);
+					sendto(udpSocket, buffer, bytesRead, 0, (sockaddr*)&udpClient, udpClientSize); 
+				}
 				else
 				{
-					//Read from client socket
+					// Read from client socket
 					char buffer[4096];
 					ZeroMemory(buffer, sizeof(buffer));
 					int bytesRead = recv(i, buffer, sizeof(buffer), 0);
@@ -388,7 +397,7 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 						}
 						else
 						{
-							cerr << "Recv error." << endl;
+							cout << "Recv error." << endl;
 						}
 
 						// Remove socket from masterSet
@@ -398,14 +407,18 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 					else
 					{
 						cout << "Received client data: " << buffer << endl;
+						HandleCommand(buffer);
 					}
 				}
 			}
 		}
+		//stop server
+		//serverActive = false;
+		if (!serverActive)
+		{
+			break;
+		}
 	}
-	//stop server
-	serverActive = false;
-
 	//Close sockets
 	for (int i = 0; i <= maxSocket; ++i)
 	{
