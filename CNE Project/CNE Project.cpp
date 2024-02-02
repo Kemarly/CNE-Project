@@ -185,21 +185,7 @@ int initUDP(int udpPort) {
 }
 void startUDPBroadcast()
 {
-	udpBroadcastRunning = true;
-	udpBroadcastThread = thread([this]()
-		{
-			while (udpBroadcastRunning) {
-				//message
-				string broadcastMessage = "Broadcasting from Server";
-
-				//Send message
-				sendto(udpSocket, broadcastMessage.c_str(), broadcastMessage.length(), 0, (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
-
-				//wait x seconds
-				this_thread::sleep_for(chrono::seconds(5));
-			}
-		});
-	udpBroadcastThread.detach();
+	
 }
 
 void ServerCode(int port, int capacity, char commandChar, int udpPort)
