@@ -8,6 +8,8 @@
 #include <cstring>
 #include <chrono>
 #include <algorithm>
+#include <thread>
+#include <mutex>
 #include <winsock2.h>
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
@@ -17,6 +19,7 @@ using namespace std;
 #define DEFAULT_COMMAND_CHAR '~'
 #define MAX_BUFFER_SIZE 256
 
+mutex clientMutex; 
 int tcp_recv_whole(SOCKET s, char* buf, int len);
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
 void ServerCode(void);
@@ -47,7 +50,6 @@ int tcp_recv_whole(SOCKET s, char* buf, int len)
 
     return total;
 }
-
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 {
     int result;
@@ -65,7 +67,45 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 
     return bytesSent;
 }
+void HandleClient(SOCKET clientSocket)
+{
+    while (true)
+    {
+        uint8_t size = 0;
 
+        int result = tcp_recv_whole(clientSocket, (char*)&size, 1);
+        if ((result == SOCKET_ERROR) || (result == 0))
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            printf("DEBUG// recv is incorrect\n");
+            FD_CLR(clientSocket, &readSet);
+            closesocket(clientSocket);
+            break;
+        }
+
+        char* buffer = new char[size];
+        result = tcp_recv_whole(clientSocket, buffer, size);
+        if ((result == SOCKET_ERROR) || (result == 0))
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            printf("DEBUG// recv is incorrect\n");
+            FD_CLR(clientSocket, &readSet);
+            closesocket(clientSocket);
+            delete[] buffer;
+            break;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            printf("DEBUG// Received a message from a client\n");
+            printf("\n\n");
+            printf(buffer);
+            printf("\n\n");
+        }
+
+        delete[] buffer;
+    }
+}
 void ServerCode(void)
 {
     SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -88,6 +128,16 @@ void ServerCode(void)
     int port;
     std::cin >> port;
     serverAddr.sin_port = htons(port);
+
+    // Prompt user for chat capacity (maximum number of clients)
+    printf("Enter chat capacity (maximum number of clients): ");
+    int maxClients;
+    std::cin >> maxClients;
+
+    // Prompt user for the command character
+    printf("Enter command character (default is ~): ");
+    char commandChar;
+    std::cin >> commandChar;;
 
     int result = bind(listenSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr));
 
@@ -115,8 +165,8 @@ void ServerCode(void)
             printf("IPv6 Address: %s\n", ip);
         }
     }
-
     freeaddrinfo(info);
+    printf("Listening on port: %d\n", port);
 
     fd_set readSet;
     FD_ZERO(&readSet);
@@ -127,7 +177,18 @@ void ServerCode(void)
     while (true)
     {
         fd_set tempSet = readSet;
-        int selectResult = select(0, &tempSet, nullptr, nullptr, nullptr);
+        int maxSocket = listenSocket;
+
+        for (u_int i = 0; i < tempSet.fd_count; ++i)
+        {
+            if (tempSet.fd_array[i] > maxSocket) maxSocket = tempSet.fd_array[i];
+        }
+
+        struct timeval timeout;
+        timeout.tv_sec = 1;  // Set the timeout (1 second in this example)
+        timeout.tv_usec = 0;
+
+        int selectResult = select(maxSocket + 1, &tempSet, nullptr, nullptr, &timeout);
 
         if (selectResult == SOCKET_ERROR)
         {
@@ -135,60 +196,73 @@ void ServerCode(void)
             break;
         }
 
+        if (selectResult == 0)
+        {
+            // Timeout
+            continue;
+        }
+
         for (u_int i = 0; i < tempSet.fd_count; ++i)
         {
-            if (tempSet.fd_array[i] == listenSocket)
+            for (u_int i = 0; i < tempSet.fd_count; ++i)
             {
-                // New connection
-                SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
-                if (ComSocket == INVALID_SOCKET)
+                if (tempSet.fd_array[i] == listenSocket)
                 {
-                    printf("DEBUG// Accept function incorrect\n");
-                    break;
+                    // New connection
+                    SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
+                    if (ComSocket == INVALID_SOCKET)
+                    {
+                        printf("DEBUG// Accept function incorrect\n"); break;
+                    }
+
+                    if (tempSet.fd_count >= maxClients)
+                    {
+                        printf("DEBUG// Maximum number of clients reached. Connection rejected.\n");
+                        closesocket(ComSocket);
+                    }
+                    else
+                    {
+                        printf("DEBUG// New connection accepted\n");
+                        FD_SET(ComSocket, &readSet);
+                        thread(HandleClient, ComSocket).detach(); 
+                    }
                 }
-
-                printf("DEBUG// New connection accepted\n");
-                FD_SET(ComSocket, &readSet);
-            }
-            else
-            {
-                // Existing client data
-                SOCKET currentSocket = tempSet.fd_array[i];
-                uint8_t size = 0;
-
-                result = tcp_recv_whole(currentSocket, (char*)&size, 1);
-                if ((result == SOCKET_ERROR) || (result == 0))
+                else
                 {
-                    printf("DEBUG// recv is incorrect\n");
-                    FD_CLR(currentSocket, &readSet);
-                    closesocket(currentSocket);
-                    break;
-                }
+                    // Existing client data
+                    SOCKET currentSocket = tempSet.fd_array[i];
+                    uint8_t size = 0;
 
-                char* buffer = new char[size];
+                    result = tcp_recv_whole(currentSocket, (char*)&size, 1);
+                    if ((result == SOCKET_ERROR) || (result == 0))
+                    {
+                        printf("DEBUG// recv is incorrect\n");
+                        FD_CLR(currentSocket, &readSet);
+                        closesocket(currentSocket);
+                        break;
+                    }
+                    char* buffer = new char[size];
+                    result = tcp_recv_whole(currentSocket, buffer, size);
+                    if ((result == SOCKET_ERROR) || (result == 0))
+                    {
+                        printf("DEBUG// recv is incorrect\n");
+                        FD_CLR(currentSocket, &readSet);
+                        closesocket(currentSocket);
+                        delete[] buffer;
+                        break;
+                    }
+                    printf("DEBUG// Received a message from a client\n");
+                    printf("\n\n");
+                    printf(buffer);
+                    printf("\n\n");
 
-                result = tcp_recv_whole(currentSocket, buffer, size);
-                if ((result == SOCKET_ERROR) || (result == 0))
-                {
-                    printf("DEBUG// recv is incorrect\n");
-                    FD_CLR(currentSocket, &readSet);
-                    closesocket(currentSocket);
                     delete[] buffer;
-                    break;
                 }
-
-                printf("DEBUG// Received a message from a client\n");
-
-                printf("\n\n");
-                printf(buffer);
-                printf("\n\n");
-
-                delete[] buffer;
             }
         }
-    }
 
-    // close both sockets
-    shutdown(listenSocket, SD_BOTH);
-    closesocket(listenSocket);
+        // close both sockets
+        shutdown(listenSocket, SD_BOTH);
+        closesocket(listenSocket);
+    }
 }
