@@ -184,6 +184,168 @@ void startUDPBroadcast()
 {
 
 }
+void serverRun(int port, int capacity, char commandChar, int udpPort) 
+{
+	char buffer[4096];
+	bool serverActive=true;
+	SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); 
+	SOCKET udpSocket = initUDP(udpPort); 
+	FD_ZERO(&masterSet);
+	FD_SET(listenSocket, &masterSet);	//add socket
+	FD_SET(udpSocket, &masterSet);		//Add UDP 
+	int numClients=0;
+	int maxSocket = max(listenSocket, udpSocket); 
+	while (true)
+	{
+		timeval timer;
+		timer.tv_sec = 0;
+		timer.tv_usec = 100000;
+		// masterSet to readySet
+		readySet = masterSet;
+
+		maxSocket = max(listenSocket, udpSocket); 
+
+		// find ready sockets
+		int socketCount = select(maxSocket , &readySet, NULL, NULL, &timer); 
+		if (socketCount == SOCKET_ERROR || socketCount == 0) 
+		{
+			cerr << "Select failed." << endl;
+			break;
+		}
+
+		/*for (int i = 0; i < socketCount; i++)
+		{
+			if (readySet.fd_array[i] == listenSocket)
+			{
+				if (numClients < MAX_CLIENTS)
+				{
+					if (FD_ISSET(listenSocket, &readySet))
+					{
+						SOCKET clientSocket = accept(listenSocket, NULL, NULL);
+						if(clientSocket!=INVALID_SOCKET)
+						{
+							FD_SET(clientSocket, &masterSet);
+							numClients.push_back(clientSocket); //new client to vector
+							numClients++;
+							cout << "New client connected" << endl;
+							string response = "Welcome \nCommand: ";
+							response += commandChar;
+							response += "For list of commands type ~help";
+							sendMessage();
+						}
+						else { cout << "Accept error"; break; }
+					}
+				}
+			}
+		}
+		*/
+		vector<SOCKET> numClients; 
+		//for (int i = 0; i <= maxSocket; ++i)
+		for (int i = 0; i <maxSocket; i++)
+		{
+			if (FD_ISSET(i, &readySet))
+			{
+				// Check if it's the listening socket
+				if (i == listenSocket)
+				{
+					sockaddr_in clientAddr;
+					int clientSize = sizeof(clientAddr);
+					SOCKET newClientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientSize);
+
+					if (newClientSocket != INVALID_SOCKET)
+					{
+						// Add new connection to masterSet
+						FD_SET(newClientSocket, &masterSet);
+
+						// Update maxSocket
+						if (newClientSocket > maxSocket)
+						{
+							maxSocket = newClientSocket;
+						}
+						cout << "New connection accepted." << endl;
+					}
+					else
+					{
+						cerr << "Accept failed." << endl;
+					}
+				}
+				else if (i == udpSocket)
+				{
+					sockaddr_in udpClient;
+					int udpClientSize = sizeof(udpClient);
+					int bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (sockaddr*)&udpClient, &udpClientSize);
+					sendto(udpSocket, buffer, bytesRead, 0, (sockaddr*)&udpClient, udpClientSize);
+				}
+				else
+				{
+					// Read from client socket
+					char buffer[4096];
+					ZeroMemory(buffer, sizeof(buffer));
+					int bytesRead = recv(i, buffer, sizeof(buffer), 0);
+					if (bytesRead <= 0)
+					{
+						if (bytesRead == 0)
+						{
+							cout << "Client disconnected." << endl;
+						}
+						else
+						{
+							cerr << "Recv error." << endl;
+						}
+
+						// Remove socket from masterSet
+						FD_CLR(i, &masterSet); 
+						closesocket(i);
+					}
+					else
+					{
+						cout<<"Received client data: " << buffer << endl;
+						HandleCommand(buffer);
+					}
+				}
+			}
+		}  
+		//stop server
+		//serverActive = false;
+		if (!serverActive)
+		{
+			break;
+		}
+	}
+	//Close sockets
+	for (int i = 0; i <= maxSocket; ++i)
+	{
+		if (FD_ISSET(i, &masterSet))
+		{
+			if (i == listenSocket || i == udpSocket)
+			{
+				// Handle the listening and UDP sockets separately if needed
+				continue;
+			}
+
+			int bytesRead = recv(i, buffer, sizeof(buffer), 0);
+			if (bytesRead <= 0)
+			{
+				if (bytesRead == 0)
+				{
+					cout << "Client disconnected." << endl;
+				}
+				else
+				{
+					cerr << "Recv error." << endl;
+				}
+
+				// Remove socket from masterSet
+				FD_CLR(i, &masterSet);
+				closesocket(i);
+			}
+			else
+			{
+				cout << "Received client data: " << buffer << endl;
+			}
+		}
+	}
+}
 
 void ServerCode(int port, int capacity, char commandChar, int udpPort)
 {
@@ -219,7 +381,6 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 	FD_SET(listenSocket, &masterSet);  
 	FD_SET(udpSocket, &masterSet); 
 	//maxSocket = max(listenSocket, udpSocket); 
-
 	//connection
 	sockaddr_in client;
 	int clientSize = sizeof(client);
@@ -243,6 +404,7 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 		inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
 		cout << host << " connect to port " << ntohs(client.sin_port) << endl;
 	}
+	serverRun( port, capacity, commandChar, udpPort);
 
 	//close listen
 	closesocket(listening);
@@ -260,7 +422,17 @@ void ServerCode(int port, int capacity, char commandChar, int udpPort)
 	}
 
 	//close sock
-	closesocket(clientSocket);
+	for (int i = 0; i <= maxSocket; ++i)
+	{
+		if (FD_ISSET(i, &masterSet))
+		{
+			if (i == listenSocket || i == udpSocket)
+			{
+				continue;
+			}
+			closesocket(i);  
+		}
+	}
 }
 
 void HandleCommand(const string& command)
@@ -323,159 +495,6 @@ void HandleCommand(const string& command)
 		break;
 	default:
 		BroadcastMessage(command, ComSocket); break;
-	}
-}
-void serverRun(int port, int capacity, char commandChar, int udpPort) 
-{
-	char buffer[4096];
-	bool serverActive=true;
-	FD_ZERO(&masterSet);
-	FD_SET(listenSocket, &masterSet); //add socket
-	int numClients=0;
-	while (true)
-	{
-		// masterSet to readySet
-		readySet = masterSet;
-
-		// find ready sockets
-		int socketCount = select(NULL, &readySet, NULL, NULL, nullptr);
-		if (socketCount == SOCKET_ERROR)
-		{
-			cerr << "Select failed." << endl;
-			break;
-		}
-
-		/*for (int i = 0; i < socketCount, i++)
-		{
-			if (readySet.fd_array[i] == listenSocket)
-			{
-				if (numClients < MAX_CLIENTS)
-				{
-					if (FD_ISSET(listenSocket, &readySet))
-					{
-						SOCKET clientSocket = accept(listenSocket, NULL, NULL);
-						if(clientSocket!=INVALID_SOCKET)
-						{
-							FD_SET(clientSocket, &masterSet);
-							numClients.push_back(clientSocket); //new client to vector
-							numClients++;
-							cout << "New client connected" << endl;
-							string response = "Welcome \nCommand: ";
-							response += commandChar;
-							response += "For list of commands type ~help";
-							sendMessage();
-						}
-						else { cout << "Accept error"; break; }
-					}
-				}
-			}
-		}
-		*/
-
-		for (int i = 0; i <= maxSocket; ++i)
-		{
-			if (FD_ISSET(i, &readySet))
-			{
-				// Check if it's the listening socket
-				if (i == listenSocket)
-				{
-					sockaddr_in clientAddr;
-					int clientSize = sizeof(clientAddr);
-					SOCKET newClientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientSize);
-
-					if (newClientSocket != INVALID_SOCKET)
-					{
-						// Add new connection to masterSet
-						FD_SET(newClientSocket, &masterSet);
-
-						// Update maxSocket
-						if (newClientSocket > maxSocket)
-						{
-							maxSocket = newClientSocket;
-						}
-						cout << "New connection accepted." << endl;
-					}
-					else
-					{
-						cerr << "Accept failed." << endl;
-					}
-				}
-				else if (i == udpSocket)
-				{
-					sockaddr_in udpClient; 
-					int udpClientSize = sizeof(udpClient); 
-					int bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (sockaddr*)&udpClient, &udpClientSize);
-					sendto(udpSocket, buffer, bytesRead, 0, (sockaddr*)&udpClient, udpClientSize); 
-				}
-				else
-				{
-					// Read from client socket
-					char buffer[4096];
-					ZeroMemory(buffer, sizeof(buffer));
-					int bytesRead = recv(i, buffer, sizeof(buffer), 0);
-
-					if (bytesRead <= 0)
-					{
-						if (bytesRead == 0)
-						{
-							printf("Client disconnected.");
-						}
-						else
-						{
-							printf("Recv error." );
-						}
-
-						// Remove socket from masterSet
-						FD_CLR(i, &masterSet);
-						closesocket(i);
-					}
-					else
-					{
-						cout<<"Received client data: " << buffer << endl;
-						HandleCommand(buffer);
-					}
-				}
-			}
-		}  
-		//stop server
-		//serverActive = false;
-		if (!serverActive)
-		{
-			break;
-		}
-	}
-	//Close sockets
-	for (int i = 0; i <= maxSocket; ++i)
-	{
-		if (FD_ISSET(i, &masterSet))
-		{
-			if (i == listenSocket || i == udpSocket)
-			{
-				// Handle the listening and UDP sockets separately if needed
-				continue;
-			}
-
-			int bytesRead = recv(i, buffer, sizeof(buffer), 0);
-			if (bytesRead <= 0)
-			{
-				if (bytesRead == 0)
-				{
-					cout << "Client disconnected." << endl;
-				}
-				else
-				{
-					cerr << "Recv error." << endl;
-				}
-
-				// Remove socket from masterSet
-				FD_CLR(i, &masterSet);
-				closesocket(i);
-			}
-			else
-			{
-				cout << "Received client data: " << buffer << endl;
-			}
-		}
 	}
 }
 
@@ -581,5 +600,6 @@ void stop()
 	closesocket(listenSocket);
 	shutdown(ComSocket, SD_BOTH);
 	closesocket(ComSocket);
+	closesocket(udpSocket); 
 	WSACleanup();
 }
