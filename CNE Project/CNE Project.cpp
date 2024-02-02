@@ -14,637 +14,181 @@
 #define _CRT_SECURE_NO_WARNINGS 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 
 using namespace std;
+#define DEFAULT_COMMAND_CHAR '~'
+#define MAX_BUFFER_SIZE 256
 
-SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-SOCKET ComSocket = accept(listenSocket, NULL, NULL);
-unordered_map<string, string> userCredentials;
-const int MAX_CLIENTS = 5;
-WSADATA wsaData;
-SOCKET udpSocket;
-sockaddr_in broadcastAddr;
-thread udpBroadcastThread;
-bool udpBroadcastRunning;
-fd_set masterSet;  //Set sockets
-fd_set readySet;   //Sockets ready
-int maxSocket;
-void ServerCode(int port, int capacity, char commandChar, int udpPort);
 int tcp_recv_whole(SOCKET s, char* buf, int len);
-void readMessage(char* buffer, int32_t size);
-void sendMessage(char* data, int32_t length);
-string GetHelpMessage();
-void RegisterUser(const string& username, const string& password);
-void HandleCommand(const string& command);
-int initUDP(int udpPort);
-void startUDPBroadcast();
-void stopUDPBroadcast();
-void stop();
+int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
+void ServerCode(void);
+
+int main()
+{
+    WSADATA wsadata;
+    WSAStartup(WINSOCK_VERSION, &wsadata);
+
+    ServerCode();
+
+    return WSACleanup();
+}
 
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
-	int total = 0;
-	do
-	{
-		int ret = recv(s, buf + total, len - total, 0);
-		if (ret <= 0)
-			return ret;
-		else
-			total += ret;
+    int total = 0;
 
-	} while (total < len);
-	return total;
+    do
+    {
+        int ret = recv(s, buf + total, len - total, 0);
+        if (ret < 1)
+            return ret;
+        else
+            total += ret;
+
+    } while (total < len);
+
+    return total;
 }
+
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 {
-	int result;
-	int bytesSent = 0;
-	while (bytesSent < length)
-	{
-		result = send(skSocket, data + bytesSent, length - bytesSent, 0);
+    int result;
+    int bytesSent = 0;
 
-		if (result <= 0)
-			return result;
+    while (bytesSent < length)
+    {
+        result = send(skSocket, data + bytesSent, length - bytesSent, 0);
 
-		bytesSent += result;
-	}
-	return bytesSent;
+        if (result <= 0)
+            return result;
+
+        bytesSent += result;
+    }
+
+    return bytesSent;
 }
 
-void sendMessage(char* data, int32_t length)
+void ServerCode(void)
 {
-	//Communication
-	uint8_t recvSize = static_cast<uint8_t>(length);
+    SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listenSocket == INVALID_SOCKET)
+    {
+        printf("DEBUG// Socket function incorrect\n");
+        return;
+    }
+    else
+    {
+        printf("DEBUG// I used the socket function\n");
+    }
 
-	int result = tcp_recv_whole(ComSocket, (char*)data, 1);
-	if ((result == SOCKET_ERROR) || (result == 0))
-	{
-		int error = WSAGetLastError();
-		printf("Disconnected");
-	}
-	char* buffer = new char[length];
+    sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
 
-	result = tcp_recv_whole(ComSocket, (char*)buffer, length);
-	if ((result == SOCKET_ERROR) || (result == 0))
-	{
-		int error = WSAGetLastError();
-		printf("Disconnected");
-	}
-	delete[] buffer;
-	printf("Success");
+    // Prompt user for TCP Port number
+    printf("Enter TCP Port number: ");
+    int port;
+    std::cin >> port;
+    serverAddr.sin_port = htons(port);
+
+    int result = bind(listenSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr));
+
+    // Obtain server host IP using gethostname() and getaddrinfo()
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    printf("Server running on host: %s\n", hostname);
+
+    struct addrinfo* info;
+    getaddrinfo(hostname, nullptr, nullptr, &info);
+
+    char ip[INET6_ADDRSTRLEN];
+    for (auto addr = info; addr != nullptr; addr = addr->ai_next)
+    {
+        if (addr->ai_family == AF_INET)
+        {
+            struct sockaddr_in* ipv4 = (struct sockaddr_in*)addr->ai_addr;
+            inet_ntop(AF_INET, &ipv4->sin_addr, ip, sizeof(ip));
+            printf("IPv4 Address: %s\n", ip);
+        }
+        else if (addr->ai_family == AF_INET6)
+        {
+            struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)addr->ai_addr;
+            inet_ntop(AF_INET6, &ipv6->sin6_addr, ip, sizeof(ip));
+            printf("IPv6 Address: %s\n", ip);
+        }
+    }
+
+    freeaddrinfo(info);
+
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(listenSocket, &readSet);
+
+    printf("Waiting...\n\n");
+
+    while (true)
+    {
+        fd_set tempSet = readSet;
+        int selectResult = select(0, &tempSet, nullptr, nullptr, nullptr);
+
+        if (selectResult == SOCKET_ERROR)
+        {
+            printf("DEBUG// Select function incorrect\n");
+            break;
+        }
+
+        for (u_int i = 0; i < tempSet.fd_count; ++i)
+        {
+            if (tempSet.fd_array[i] == listenSocket)
+            {
+                // New connection
+                SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
+                if (ComSocket == INVALID_SOCKET)
+                {
+                    printf("DEBUG// Accept function incorrect\n");
+                    break;
+                }
+
+                printf("DEBUG// New connection accepted\n");
+                FD_SET(ComSocket, &readSet);
+            }
+            else
+            {
+                // Existing client data
+                SOCKET currentSocket = tempSet.fd_array[i];
+                uint8_t size = 0;
+
+                result = tcp_recv_whole(currentSocket, (char*)&size, 1);
+                if ((result == SOCKET_ERROR) || (result == 0))
+                {
+                    printf("DEBUG// recv is incorrect\n");
+                    FD_CLR(currentSocket, &readSet);
+                    closesocket(currentSocket);
+                    break;
+                }
+
+                char* buffer = new char[size];
+
+                result = tcp_recv_whole(currentSocket, buffer, size);
+                if ((result == SOCKET_ERROR) || (result == 0))
+                {
+                    printf("DEBUG// recv is incorrect\n");
+                    FD_CLR(currentSocket, &readSet);
+                    closesocket(currentSocket);
+                    delete[] buffer;
+                    break;
+                }
+
+                printf("DEBUG// Received a message from a client\n");
+
+                printf("\n\n");
+                printf(buffer);
+                printf("\n\n");
+
+                delete[] buffer;
+            }
+        }
+    }
+
+    // close both sockets
+    shutdown(listenSocket, SD_BOTH);
+    closesocket(listenSocket);
 }
-void readMessage(char* buffer, int32_t size)
-{
-	uint8_t recvSize = 0;
-	SOCKET ComSocket = accept(listenSocket, NULL, NULL);
-	int result = tcp_recv_whole(ComSocket, (char*)size, 1);
-	if ((result == SOCKET_ERROR) || (result == 0))
-	{
-		int error = WSAGetLastError();
-		printf("Disconnected");
-	}
-	buffer = new char[size];
-
-	result = tcp_recv_whole(ComSocket, (char*)buffer, size);
-	if ((result == SOCKET_ERROR) || (result == 0))
-	{
-		int error = WSAGetLastError();
-		printf("Disconnected");
-	}
-	delete[] buffer;
-	printf("Success");
-}
-
-
-string GetHelpMessage()
-{
-	string helpMessage = "Available commands:\n";
-	helpMessage += "~help - Display available commands\n";
-	helpMessage += "~register - username password - Register a new user\n";
-	helpMessage += "~login - username password - Login with user account\n";
-	helpMessage += "~send - Display available commands\n";
-	helpMessage += "~getlist - Display available commands\n";
-	helpMessage += "~logout - Logs out of user account\n";
-
-	return helpMessage;
-}
-void RegisterUser(const string& username, const string& password)
-{
-	if (userCredentials.size() >= MAX_CLIENTS)
-	{
-		string CAP_REACHED = "Max Client Capacity.";
-		//int CAPACITY_REACHED = stoi(CAP_REACHED);
-		//return CAPACITY_REACHED;
-		printf("Max Client Capacity.");
-	}
-
-	// Check if the username is already taken
-	if (userCredentials.find(username) != userCredentials.end())
-	{
-		string USER_TAKEN = "Max Client Capacity.";
-		//int USERNAME_TAKEN = stoi(USER_TAKEN);
-		//return USERNAME_TAKEN;
-		printf("Max Client Capacity.");
-	}
-
-	// Register the user
-	userCredentials[username] = password;
-	printf("Success");
-}
-int ProcessLogin(const string& username, const string& password, SOCKET clientSocket)
-{
-	return 0;
-}
-int BroadcastMessage(const string& message, SOCKET senderSocket)
-{
-	return 0;
-}
-int SendClientList(SOCKET clientSocket)
-{
-	return 0;
-}
-int SavePublicMessage(const string& message)
-{
-	return 0;
-}
-
-int initUDP(int udpPort) {
-	udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (udpSocket == INVALID_SOCKET) {
-		cout << "UDP Socket creation failed." << endl;
-		return 0;
-	}
-
-	//make broadcast address 
-	memset(&broadcastAddr, 0, sizeof(broadcastAddr));
-	broadcastAddr.sin_family = AF_INET;
-	broadcastAddr.sin_port = htons(udpPort);
-	broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-	return 1;
-}
-void startUDPBroadcast()
-{
-
-}
-void serverRun(int port, int capacity, char commandChar, int udpPort)
-{
-	char buffer[4096];
-	bool serverActive = true;
-	SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	SOCKET udpSocket = initUDP(udpPort);
-	FD_ZERO(&masterSet);
-	FD_SET(listenSocket, &masterSet);	//add socket
-	FD_SET(udpSocket, &masterSet);		//Add UDP 
-	int numClients = 0;
-	int maxSocket = max(listenSocket, udpSocket);
-
-
-	while (true)
-	{
-		timeval timer;
-		timer.tv_sec = 0;
-		timer.tv_usec = 100000;
-		// masterSet to readySet
-		readySet = masterSet;
-
-		maxSocket = max(listenSocket, udpSocket);
-
-		// find ready sockets
-		int socketCount = select(maxSocket, &readySet, NULL, NULL, &timer);
-		if (socketCount == SOCKET_ERROR || socketCount == 0)
-		{
-			cerr << "Select failed." << endl;
-			break;
-		}
-		printf("\nConnections can now be made.");
-		while (true)
-		{
-			//Multiplexing Connections
-			readySet = masterSet;
-			select(0, &readySet, NULL, NULL, NULL);
-			{
-
-				/*WSADATA wsaData = {0};
-				WSAStartup(MAKEWORD(2, 2), &wsaData);
-				sock[nSock++] = MakeSoocket((WORD)atoi(argv[1]));
-				if (sock[0])
-				{
-					fd_set tmpSet;
-					TIMEVAL timer;
-					int i, iRet;
-					BOOL bend = false;
-					FD_ZERO(&FDSet);
-					FD_SET(sock[0], &FDSet);
-					timer.tv_sec = 0;
-					timer.tv_usec = 100000;
-					while (!bend)
-					{
-						tmpSet = FDSet;
-						iRet = select(tmpSet.fd_count, &tmpSet, NULL, NULL, &timer);
-						if (iRet == SOCKET_ERROR) { printf("Socket Error %d\n", WSAGetLastError()); break; }
-						if (!iRet) { printf("Socket Timeout"); continue; }
-						if (FD_ISSET(sock[0], &tmpSet)) { addClient(); iRet--; }
-						for (i = 1; i < nSock && iRet>0; i++)
-						{
-							if (FD_ISSET(sock[i], &tmpSet))
-							{
-								bend |= recvClient(i);
-								iRet++;
-							}
-						}
-					}
-					for (i = 0; i < nSock; i++)
-					{
-						if (sock[i]) closesocket(sock[i]);
-					}
-				}
-				*/
-				/*for (int i = 0; i < socketCount; i++)
-				{
-					if (readySet.fd_array[i] == listenSocket)
-					{
-						if (numClients < MAX_CLIENTS)
-						{
-							if (FD_ISSET(listenSocket, &readySet))
-							{
-								SOCKET clientSocket = accept(listenSocket, NULL, NULL);
-								if(clientSocket!=INVALID_SOCKET)
-								{
-									FD_SET(clientSocket, &masterSet);
-									numClients.push_back(clientSocket); //new client to vector
-									numClients++;
-									cout << "New client connected" << endl;
-									string response = "Welcome \nCommand: ";
-									response += commandChar;
-									response += "For list of commands type ~help";
-									sendMessage();
-								}
-								else { cout << "Accept error"; break; }
-							}
-						}
-					}
-				}
-				*/
-				vector<SOCKET> numClients;
-				//for (int i = 0; i <= maxSocket; ++i)
-				for (int i = 0; i < maxSocket; i++)
-				{
-					if (FD_ISSET(i, &readySet))
-					{
-						// Check if it's the listening socket
-						if (i == listenSocket)
-						{
-							sockaddr_in clientAddr;
-							int clientSize = sizeof(clientAddr);
-							SOCKET newClientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientSize);
-
-							if (newClientSocket != INVALID_SOCKET)
-							{
-								// Add new connection to masterSet
-								FD_SET(newClientSocket, &masterSet);
-
-								// Update maxSocket
-								if (newClientSocket > maxSocket)
-								{
-									maxSocket = newClientSocket;
-								}
-								cout << "New connection accepted." << endl;
-							}
-							else
-							{
-								cerr << "Accept failed." << endl;
-							}
-						}
-						else if (i == udpSocket)
-						{
-							sockaddr_in udpClient;
-							int udpClientSize = sizeof(udpClient);
-							int bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (sockaddr*)&udpClient, &udpClientSize);
-							sendto(udpSocket, buffer, bytesRead, 0, (sockaddr*)&udpClient, udpClientSize);
-						}
-						else
-						{
-							// Read from client socket
-							char buffer[4096];
-							ZeroMemory(buffer, sizeof(buffer));
-							int bytesRead = recv(i, buffer, sizeof(buffer), 0);
-							if (bytesRead <= 0)
-							{
-								if (bytesRead == 0)
-								{
-									cout << "Client disconnected." << endl;
-								}
-								else
-								{
-									cerr << "Recv error." << endl;
-								}
-
-								// Remove socket from masterSet
-								FD_CLR(i, &masterSet);
-								closesocket(i);
-							}
-							else
-							{
-								cout << "Received client data: " << buffer << endl;
-								HandleCommand(buffer);
-							}
-						}
-					}
-				}
-				//stop server
-				//serverActive = false;
-				if (!serverActive)
-				{
-					break;
-				}
-			}
-			//Close sockets
-			for (int i = 0; i <= maxSocket; ++i)
-			{
-				if (FD_ISSET(i, &masterSet))
-				{
-					if (i == listenSocket || i == udpSocket)
-					{
-						// Handle the listening and UDP sockets separately if needed
-						continue;
-					}
-
-					int bytesRead = recv(i, buffer, sizeof(buffer), 0);
-					if (bytesRead <= 0)
-					{
-						if (bytesRead == 0)
-						{
-							cout << "Client disconnected." << endl;
-						}
-						else
-						{
-							cerr << "Recv error." << endl;
-						}
-
-						// Remove socket from masterSet
-						FD_CLR(i, &masterSet);
-						closesocket(i);
-					}
-					else
-					{
-						cout << "Received client data: " << buffer << endl;
-					}
-				}
-			}
-		}
-
-		void ServerCode(int port, int capacity, char commandChar, int udpPort)
-		{
-			//Winsock
-			if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-			{
-				cerr << "WSAStartup failed." << endl; return;
-			}
-			//udp
-			if (!initUDP(udpPort)) { cout << "UDP initialization failed." << endl; }
-
-			//socket
-			SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
-			if (listening == INVALID_SOCKET) { cout << "Socket not created." << endl; WSACleanup(); printf("Success"); }
-
-			//bind
-			sockaddr_in serverAddr;
-			serverAddr.sin_family = AF_INET;
-			serverAddr.sin_port = htons(port);
-			serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
-			if (bind(listening, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
-			{
-				cout << "Bind failed." << endl;
-				closesocket(listening);
-				WSACleanup();
-				return;
-			}
-
-			//listen
-			listen(listenSocket, SOMAXCONN);
-			cout << "Server listening: " << port << endl;
-			FD_ZERO(&masterSet);
-			FD_SET(listenSocket, &masterSet);
-			FD_SET(udpSocket, &masterSet);
-			//maxSocket = max(listenSocket, udpSocket); 
-			//connection
-			sockaddr_in client;
-			int clientSize = sizeof(client);
-			SOCKET clientSocket = accept(listenSocket, (sockaddr*)&client, &clientSize);
-			if (clientSocket == INVALID_SOCKET) {
-				cerr << "Accept failed." << endl;
-				closesocket(listenSocket);
-				WSACleanup();
-				return;
-			}
-			char host[NI_MAXHOST];
-			char service[NI_MAXHOST];
-			ZeroMemory(host, NI_MAXHOST);
-			ZeroMemory(service, NI_MAXHOST);
-			if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0)
-			{
-				cout << host << " connect to port " << service << endl;
-			}
-			else
-			{
-				inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
-				cout << host << " connect to port " << ntohs(client.sin_port) << endl;
-			}
-			serverRun(port, capacity, commandChar, udpPort);
-
-			//close listen
-			closesocket(listenSocket);
-
-			//loop
-			char buff[4096];
-			while (true)
-			{
-				ZeroMemory(buff, 4096);
-				//client send message
-				int byteRecv = recv(clientSocket, buff, 4096, 0);
-				if (byteRecv == SOCKET_ERROR) { cout << "Recive Error" << endl; }
-				if (byteRecv == 0) { cout << "Disconnected" << endl; break; }
-				send(clientSocket, buff, byteRecv * 1, 0);
-			}
-
-			//close sock
-			for (int i = 0; i <= maxSocket; ++i)
-			{
-				if (FD_ISSET(i, &masterSet))
-				{
-					if (i == listenSocket || i == udpSocket)
-					{
-						continue;
-					}
-					closesocket(i);
-				}
-			}
-		}
-	
-	
-		void HandleCommand(const string & command)
-		{
-			if (command.empty());
-			char commandChar = command[0];
-			string args = command.substr(1);
-			switch (commandChar)
-			{
-			case '~':
-
-				if (args.find("help") != string::npos) {
-					string helpMessage = GetHelpMessage();
-					const char* helpChar = helpMessage.c_str();
-					delete[] helpChar;
-				}
-				if (args.find("register") == 0)
-				{
-					// ~register
-					size_t spacePos = args.find(' ');
-					if (spacePos != string::npos)
-					{
-						string username = args.substr(9, spacePos - 9);
-						string password = args.substr(spacePos + 1);
-					}
-				}
-				else if (args.find("login") == 0)
-				{
-					//~login
-					size_t spacePos = args.find(' ');
-					if (spacePos != string::npos)
-					{
-						string username = args.substr(6, spacePos - 6);
-						string password = args.substr(spacePos + 1);
-						int ProcessLogin(const string & username, const string & password, SOCKET clientSocket);
-					}
-				}
-				else if (args.find("send") == 0)
-				{
-					size_t spacePos = args.find(' ');
-
-					int SendClientList(SOCKET clientSocket);
-				}
-				else if (args.find("getlist") == 0)
-				{
-					size_t spacePos = args.find(' ');
-
-					// ~getlist
-				}
-				else if (args.find("logout") == 0)
-				{
-					size_t spacePos = args.find(' ');
-
-					// ~logout
-				}
-				else
-				{
-					printf("Please enter a command");
-				}
-				break;
-			default:
-				BroadcastMessage(command, ComSocket); break;
-			}
-		}
-
-		void ClientCode(void)
-		{
-
-			//socket
-			SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, 0);
-			if (clientSocket == INVALID_SOCKET) { cout << "Socket not created." << endl; return; }
-
-			//bind
-			sockaddr_in serverAddr;
-			serverAddr.sin_family = AF_INET;
-			serverAddr.sin_port = htons(36000);
-			inet_pton(AF_INET, "127.0.0.1", &serverAddr.sin_addr);
-			//bind(listening, (sockaddr*)&hint, sizeof(hint));
-
-			//listen
-			//listen(listening, SOMAXCONN);
-
-			//connection
-			if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-				cout << "Unable to connect to the server." << endl;
-				closesocket(clientSocket);
-				return;
-			}
-			cout << "Connect Server" << endl;
-
-			//close listen
-			//closesocket(listening);
-
-			//loop
-			char buff[4096];
-			while (true)
-			{
-				ZeroMemory(buff, 4096);
-				//client send message
-				cout << "Enter a message: ";
-				cin.getline(buff, sizeof(buff));
-				int byteSent = send(clientSocket, buff, strlen(buff), 0);
-				if (byteSent == SOCKET_ERROR) { cout << "Send error." << endl; break; }
-				int byteRecv = recv(clientSocket, buff, sizeof(buff), 0);
-				if (byteRecv == SOCKET_ERROR) { cout << "Recive Error" << endl; }
-				if (byteRecv == 0) { cout << "Disconnected" << endl; break; }
-				//send(clientSocket, buff, byteRecv * 1, 0);
-				cout << "Server: " << buff << endl;
-			}
-
-			//close sock
-			closesocket(clientSocket);
-		}
-
-		int main()
-		{
-			//winsock
-			WSADATA wsData;
-			WORD ver = MAKEWORD(2, 2);
-			int wsOk = WSAStartup(ver, &wsData);
-			if (wsOk != 0) { cout << "Winstock not initialize." << endl; return -1; }
-			int choice;
-			do
-			{
-				printf("Would you like to Create a Server or Client?\n");
-				printf("1> Server\n");
-				printf("2> Client\n");
-				cin >> choice;
-			} while (choice != 1 && choice != 2);
-
-			//Server
-			if (choice == 1)
-			{
-				int port, capacity;
-				char commandChar;
-				int udpPort{};
-				cout << "Port: ";
-				cin >> port;
-				cout << "Capacity: ";
-				cin >> capacity;
-				cout << "Command character: ";
-				cin >> commandChar;
-				ServerCode(port, capacity, commandChar, udpPort);
-			}
-
-			//Client
-			else if (choice == 2)
-			{
-				ClientCode();
-			}
-
-			//shutdown winsock
-			WSACleanup();
-			return 0;
-		}
-		void stopUDPBroadcast()
-		{
-			udpBroadcastRunning = false;
-			udpBroadcastThread.join();
-			closesocket(udpSocket);
-		}
-		void stop()
-		{
-			shutdown(listenSocket, SD_BOTH);
-			closesocket(listenSocket);
-			shutdown(ComSocket, SD_BOTH);
-			closesocket(ComSocket);
-			closesocket(udpSocket);
-			WSACleanup();
-		}
