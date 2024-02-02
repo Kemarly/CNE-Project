@@ -478,7 +478,8 @@ void serverRun(int port, int capacity, char commandChar, int udpPort)
 				}
 			}
 		}
-
+	
+	
 		void HandleCommand(const string & command)
 		{
 			if (command.empty());
