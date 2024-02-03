@@ -19,19 +19,30 @@ using namespace std;
 #define DEFAULT_COMMAND_CHAR '~'
 #define MAX_BUFFER_SIZE 256
 
-mutex clientMutex; 
+mutex clientMutex;
 int tcp_recv_whole(SOCKET s, char* buf, int len);
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
 void HandleClient(SOCKET clientSocket, fd_set& readSet);
-fd_set readyset, masterset; 
+fd_set readyset, masterset;
 void ServerCode(void);
+
 int main()
 {
     WSADATA wsadata;
-    WSAStartup(WINSOCK_VERSION, &wsadata);
+    if (WSAStartup(WINSOCK_VERSION, &wsadata) != 0)
+    {
+        cerr << "Failed to initialize Winsock." << endl;
+        return EXIT_FAILURE;
+    }
     ServerCode();
-    return WSACleanup();
+    if (WSACleanup() != 0)
+    {
+        cerr << "Failed to clean up Winsock." << endl;
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
+
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
     int total = 0;
@@ -53,6 +64,7 @@ int tcp_recv_whole(SOCKET s, char* buf, int len)
 
     return total;
 }
+
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 {
     int result;
@@ -74,6 +86,7 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 
     return bytesSent;
 }
+
 void HandleClient(SOCKET clientSocket, fd_set& readSet)
 {
     while (true)
@@ -84,7 +97,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
         if ((result == SOCKET_ERROR) || (result == 0))
         {
             std::lock_guard<std::mutex> lock(clientMutex);
-            printf("  recv is incorrect in handle\n");
+            printf("  recv disconnected client\n");
             FD_CLR(clientSocket, &readSet);
             closesocket(clientSocket);
             break;
@@ -95,7 +108,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
         if ((result == SOCKET_ERROR) || (result == 0))
         {
             std::lock_guard<std::mutex> lock(clientMutex);
-            printf("  recv is incorrect in handle\n");
+            printf("  recv is incorrect in handle 1\n");
             FD_CLR(clientSocket, &readSet);
             closesocket(clientSocket);
             delete[] buffer;
@@ -113,6 +126,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
         delete[] buffer;
     }
 }
+
 void ServerCode(void)
 {
     SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -185,9 +199,8 @@ void ServerCode(void)
         }
     }
     freeaddrinfo(info);
-    printf("Listening on port: %d\n", port); 
+    printf("Listening on port: %d\n", port);
 
-    fd_set readyset, masterset;
     FD_ZERO(&masterset);
     FD_SET(listenSocket, &masterset);
     FD_ZERO(&readyset);
@@ -202,7 +215,7 @@ void ServerCode(void)
 
         if (temp == SOCKET_ERROR)
         {
-            printf("  Select function incorrect\n");
+            printf("Select function incorrect: %d\n", WSAGetLastError());
             break;
         }
 
@@ -214,11 +227,10 @@ void ServerCode(void)
             {
                 printf("  Accept function incorrect\n");
             }
-            else if (FD_SETSIZE > masterset.fd_count)
+            else if (masterset.fd_count < FD_SETSIZE)
             {
                 printf("  New connection accepted\n");
                 FD_SET(ComSocket, &masterset);
-                thread(HandleClient, ComSocket, std::ref(masterset)).detach();
             }
             else
             {
@@ -251,7 +263,7 @@ void ServerCode(void)
                     if ((result == SOCKET_ERROR) || (result == 0))
                     {
                         std::lock_guard<std::mutex> lock(clientMutex);
-                        printf("  recv is incorrect\n");
+                        printf("  recv is incorrect: Disconnected\n");
                         FD_CLR(currentSocket, &masterset);
                         closesocket(currentSocket);
                         delete[] buffer;
@@ -261,7 +273,7 @@ void ServerCode(void)
                         std::lock_guard<std::mutex> lock(clientMutex);
                         printf("  Received a message from a client\n");
                         printf("\n\n");
-                        printf(buffer);
+                        printf("%s", buffer);
                         printf("\n\n");
                         delete[] buffer;
                     }
