@@ -26,6 +26,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet);
 fd_set readyset, masterset;
 void ServerCode(void);
 
+
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
     int total = 0;
@@ -59,6 +60,24 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
         bytesSent += result;
     }
     return bytesSent;
+}
+void BroadcastMessage(const string& message)
+{
+    // broadcast to all clients
+    std::lock_guard<std::mutex> lock(clientMutex);
+    SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    for (u_int i = 0; i < masterset.fd_count; ++i)
+    {
+        SOCKET currentSocket = masterset.fd_array[i];
+        if (currentSocket != listenSocket)
+        {
+            int result = tcp_send_whole(currentSocket, message.c_str(), message.length());
+            if (result <= 0)
+            {
+                cerr << "Failed to send message to client." << endl;
+            }
+        }
+    }
 }
 
 void HandleCommand(const string& command)
@@ -268,7 +287,11 @@ int main()
     }
     return EXIT_SUCCESS;
 }
+#define UDP_BROADCAST_PORT 12345 // Choose a  port number
+#define UDP_BROADCAST_INTERVAL 10 // Interval in seconds
 
+string serverIP; // server IP
+int serverPort;
 void UDPBroadcast()
 {
     // Create a UDP socket
