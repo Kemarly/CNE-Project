@@ -201,6 +201,7 @@ void ServerCode(void)
     freeaddrinfo(info);
     printf("Listening on port: %d\n", port);
 
+    fd_set readyset, masterset;
     FD_ZERO(&masterset);
     FD_SET(listenSocket, &masterset);
     FD_ZERO(&readyset);
@@ -209,6 +210,7 @@ void ServerCode(void)
 
     while (true)
     {
+
         readyset = masterset;
 
         int temp = select(0, &readyset, NULL, NULL, NULL);
