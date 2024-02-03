@@ -54,13 +54,48 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
     while (bytesSent < length)
     {
         result = send(skSocket, data + bytesSent, length - bytesSent, 0);
-
         if (result <= 0)
             return result;
-
         bytesSent += result;
     }
     return bytesSent;
+}
+
+void HandleCommand(const string& command)
+{
+    if (command.empty()) return;
+    char commandChar = command[0];
+    string args = command.substr(1);
+    switch (commandChar)
+    {
+    case '~':
+        if (args.find("help") != string::npos) {
+            // ~help command
+        }
+        else if (args.find("register") == 0) {
+            // ~register command
+        }
+        else if (args.find("login") == 0) {
+            // ~login command
+        }
+        else if (args.find("send") == 0) {
+            // ~send command
+        }
+        else if (args.find("getlist") == 0) {
+            //~getlist command
+        }
+        else if (args.find("logout") == 0) {
+            // ~logout command
+        }
+        else {
+            // Unknown command
+            cout << "Command Unavailible: " << command << endl;
+        }
+        break;
+    default:
+        BroadcastMessage(command);
+        break;
+    }
 }
 
 void HandleClient(SOCKET clientSocket, fd_set& readSet)
@@ -232,4 +267,48 @@ int main()
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
+}
+
+void UDPBroadcast()
+{
+    // Create a UDP socket
+    SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (udpSocket == INVALID_SOCKET)
+    {
+        cerr << "Failed to create UDP socket." << endl;
+        return;
+    }
+
+    // Enable broadcast option
+    int broadcastOption = 1;
+    if (setsockopt(udpSocket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastOption, sizeof(broadcastOption)) == SOCKET_ERROR)
+    {
+        cerr << "Failed to enable broadcast option." << endl;
+        closesocket(udpSocket);
+        return;
+    }
+
+    // Construct the broadcast address structure
+    sockaddr_in broadcastAddr;
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_port = htons(UDP_BROADCAST_PORT);
+    broadcastAddr.sin_addr.s_addr = INADDR_BROADCAST;
+
+    // Compose the broadcast message
+    string broadcastMessage = "Server IP: " + serverIP + ", Port: " + to_string(serverPort);
+
+    while (true)
+    {
+        // Send the broadcast message
+        if (sendto(udpSocket, broadcastMessage.c_str(), broadcastMessage.length(), 0, (sockaddr*)&broadcastAddr, sizeof(broadcastAddr)) == SOCKET_ERROR)
+        {
+            cerr << "Failed to send broadcast message." << endl;
+        }
+
+        // Sleep for x seconds before sending the next broadcast
+        this_thread::sleep_for(chrono::seconds(UDP_BROADCAST_INTERVAL));
+    }
+
+    // Close the UDP socket
+    closesocket(udpSocket);
 }
