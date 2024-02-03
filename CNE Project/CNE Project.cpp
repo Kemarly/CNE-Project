@@ -72,6 +72,8 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length)
 
 void HandleClient(SOCKET clientSocket, fd_set& readSet)
 {
+    const char* welcomeMessage = "Welcome to the Server!\n Please enter your commands starting with (~): ";
+    tcp_send_whole(clientSocket, welcomeMessage, strlen(welcomeMessage)); 
     while (true)
     {
         uint8_t size = 0;
