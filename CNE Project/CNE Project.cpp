@@ -26,23 +26,6 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet);
 fd_set readyset, masterset;
 void ServerCode(void);
 
-int main()
-{
-    WSADATA wsadata;
-    if (WSAStartup(WINSOCK_VERSION, &wsadata) != 0)
-    {
-        cerr << "Failed to initialize Winsock." << endl;
-        return EXIT_FAILURE;
-    }
-    ServerCode();
-    if (WSACleanup() != 0)
-    {
-        cerr << "Failed to clean up Winsock." << endl;
-        return EXIT_FAILURE;
-    }
-    return EXIT_SUCCESS;
-}
-
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
     int total = 0;
@@ -129,58 +112,55 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
 
 void ServerCode(void)
 {
+    // Create the listening socket
     SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listenSocket == INVALID_SOCKET)
     {
-        printf("  Socket function incorrect\n");
+        cerr << "Failed to create socket." << endl;
         return;
     }
-    else
-    {
-        printf("  I used the socket function\n");
-    }
 
+    // Set up the server address
     sockaddr_in serverAddr;
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
 
-    // Prompt user for TCP Port number
-    printf("Enter TCP Port number: ");
+    // Prompt the user for the TCP port number
+    cout << "Enter TCP Port number: ";
     int port;
-    std::cin >> port;
+    cin >> port;
     serverAddr.sin_port = htons(port);
 
-    // Prompt user for chat capacity (maximum number of clients)
-    printf("Enter chat capacity (maximum number of clients): ");
+    // Prompt the user for the chat capacity
+    cout << "Enter chat capacity (maximum number of clients): ";
     int maxClients;
-    std::cin >> maxClients;
+    cin >> maxClients;
 
-    // Prompt user for the command character
-    printf("Enter command character (default is ~): ");
+    // Prompt the user for the command character
+    cout << "Enter command character (default is ~): ";
     char commandChar;
-    std::cin >> commandChar;
+    cin >> commandChar;
 
+    // Bind the listening socket to the server address
     int result = bind(listenSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr));
-
     if (result == SOCKET_ERROR) {
-        printf("  Bind function incorrect\n");
+        cerr << "Failed to bind socket." << endl;
         closesocket(listenSocket);
-        WSACleanup();
         return;
     }
 
+    // Start listening for incoming connections
     result = listen(listenSocket, SOMAXCONN);
     if (result == SOCKET_ERROR) {
-        printf("  Listen function incorrect\n");
+        cerr << "Failed to listen on socket." << endl;
         closesocket(listenSocket);
-        WSACleanup();
         return;
     }
 
     // Obtain server host IP using gethostname() and getaddrinfo()
     char hostname[256];
     gethostname(hostname, sizeof(hostname));
-    printf("Server running on host: %s\n", hostname);
+    cout << "Server running on host: " << hostname << endl;
 
     struct addrinfo* info;
     getaddrinfo(hostname, nullptr, nullptr, &info);
@@ -190,101 +170,94 @@ void ServerCode(void)
         if (addr->ai_family == AF_INET) {
             struct sockaddr_in* ipv4 = (struct sockaddr_in*)addr->ai_addr;
             inet_ntop(AF_INET, &ipv4->sin_addr, ip, sizeof(ip));
-            printf("IPv4 Address: %s\n", ip);
+            cout << "IPv4 Address: " << ip << endl;
         }
         else if (addr->ai_family == AF_INET6) {
             struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)addr->ai_addr;
             inet_ntop(AF_INET6, &ipv6->sin6_addr, ip, sizeof(ip));
-            printf("IPv6 Address: %s\n", ip);
+            cout << "IPv6 Address: " << ip << endl;
         }
     }
     freeaddrinfo(info);
-    printf("Listening on port: %d\n", port);
+    cout << "Listening on port: " << port << endl;
 
+    // Set up the file descriptor sets for multiplexing
     fd_set readyset, masterset;
     FD_ZERO(&masterset);
     FD_SET(listenSocket, &masterset);
     FD_ZERO(&readyset);
 
-    printf("Waiting...\n\n");
+    cout << "Waiting for connections..." << endl;
 
     while (true)
     {
-
+        // Copy the master set to the ready set
         readyset = masterset;
 
+        // Use select to wait for activity on the sockets
         int temp = select(0, &readyset, NULL, NULL, NULL);
-
         if (temp == SOCKET_ERROR)
         {
-            printf("Select function incorrect: %d\n", WSAGetLastError());
+            cerr << "Select function failed: " << WSAGetLastError() << endl;
             break;
         }
 
+        // Check for new connections on the listening socket
         if (FD_ISSET(listenSocket, &readyset))
         {
-            // New connection
-            SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
-            if (ComSocket == INVALID_SOCKET)
+            // Accept the new connection
+            SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
+            if (clientSocket == INVALID_SOCKET)
             {
-                printf("  Accept function incorrect\n");
+                cerr << "Failed to accept connection." << endl;
             }
             else if (masterset.fd_count < FD_SETSIZE)
             {
-                printf("  New connection accepted\n");
-                FD_SET(ComSocket, &masterset);
+                cout << "New connection accepted." << endl;
+                FD_SET(clientSocket, &masterset);
             }
             else
             {
-                printf("  Maximum number of clients reached. Connection rejected.\n");
-                closesocket(ComSocket);
+                cout << "Maximum number of clients reached. Connection rejected." << endl;
+                closesocket(clientSocket);
             }
         }
 
+        // Check for activity on the connected sockets
         for (u_int i = 0; i < masterset.fd_count; ++i)
         {
             SOCKET currentSocket = masterset.fd_array[i];
 
             if (FD_ISSET(currentSocket, &readyset))
             {
-                // Existing client data
-                uint8_t size = 0;
-
-                result = tcp_recv_whole(currentSocket, (char*)&size, 1);
-                if ((result == SOCKET_ERROR) || (result == 0))
-                {
-                    std::lock_guard<std::mutex> lock(clientMutex);
-                    printf("  recv is correct\n");
-                    FD_CLR(currentSocket, &masterset);
-                    closesocket(currentSocket);
-                }
-                else
-                {
-                    char* buffer = new char[size];
-                    result = tcp_recv_whole(currentSocket, buffer, size);
-                    if ((result == SOCKET_ERROR) || (result == 0))
-                    {
-                        std::lock_guard<std::mutex> lock(clientMutex);
-                        printf("  recv is incorrect: Disconnected\n");
-                        FD_CLR(currentSocket, &masterset);
-                        closesocket(currentSocket);
-                        delete[] buffer;
-                    }
-                    else
-                    {
-                        std::lock_guard<std::mutex> lock(clientMutex);
-                        printf("  Received a message from a client\n");
-                        printf("\n\n");
-                        printf("%s", buffer);
-                        printf("\n\n");
-                        delete[] buffer;
-                    }
-                }
+                // Handle the client's message
+                HandleClient(currentSocket, masterset);
             }
         }
     }
 
-    // close both sockets
+    // Close the listening socket
     shutdown(listenSocket, SD_BOTH);
     closesocket(listenSocket);
+}
+
+
+int main()
+{
+    // Initialize Winsock
+    WSADATA wsadata;
+    if (WSAStartup(WINSOCK_VERSION, &wsadata) != 0)
+    {
+        cerr << "Failed to initialize Winsock." << endl;
+        return EXIT_FAILURE;
+    }
+    ServerCode();
+
+    // Clean up Winsock
+    if (WSACleanup() != 0)
+    {
+        cerr << "Failed to clean up Winsock." << endl;
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
