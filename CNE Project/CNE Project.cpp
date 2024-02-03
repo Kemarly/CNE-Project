@@ -26,14 +26,6 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet);
 
 void ServerCode(void);
 
-int main()
-{
-    WSADATA wsadata;
-    WSAStartup(WINSOCK_VERSION, &wsadata);
-    ServerCode();
-    return WSACleanup();
-}
-
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
     int total = 0;
@@ -108,7 +100,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
             std::lock_guard<std::mutex> lock(clientMutex);
             printf("DEBUG// Received a message from a client\n");
             printf("\n\n");
-            printf(buffer);
+            printf("%s", buffer);
             printf("\n\n");
         }
 
@@ -117,6 +109,8 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
 }
 void ServerCode(void)
 {
+    WSADATA wsadata; 
+    WSAStartup(WINSOCK_VERSION, &wsadata); 
     SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listenSocket == INVALID_SOCKET)
     {
@@ -146,9 +140,24 @@ void ServerCode(void)
     // Prompt user for the command character
     printf("Enter command character (default is ~): ");
     char commandChar;
-    std::cin >> commandChar;;
+    std::cin >> commandChar;
 
     int result = bind(listenSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr));
+
+    if (result == SOCKET_ERROR) {
+        printf("DEBUG// Bind function incorrect\n");
+        closesocket(listenSocket);
+        WSACleanup();
+        return;
+    }
+
+    result = listen(listenSocket, SOMAXCONN);
+    if (result == SOCKET_ERROR) {
+        printf("DEBUG// Listen function incorrect\n");
+        closesocket(listenSocket);
+        WSACleanup();
+        return;
+    }
 
     // Obtain server host IP using gethostname() and getaddrinfo()
     char hostname[256];
@@ -159,27 +168,24 @@ void ServerCode(void)
     getaddrinfo(hostname, nullptr, nullptr, &info);
 
     char ip[INET6_ADDRSTRLEN];
-    for (auto addr = info; addr != nullptr; addr = addr->ai_next)
-    {
-        if (addr->ai_family == AF_INET)
-        {
+    for (auto addr = info; addr != nullptr; addr = addr->ai_next) {
+        if (addr->ai_family == AF_INET) {
             struct sockaddr_in* ipv4 = (struct sockaddr_in*)addr->ai_addr;
             inet_ntop(AF_INET, &ipv4->sin_addr, ip, sizeof(ip));
             printf("IPv4 Address: %s\n", ip);
         }
-        else if (addr->ai_family == AF_INET6)
-        {
+        else if (addr->ai_family == AF_INET6) {
             struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)addr->ai_addr;
             inet_ntop(AF_INET6, &ipv6->sin6_addr, ip, sizeof(ip));
             printf("IPv6 Address: %s\n", ip);
         }
     }
     freeaddrinfo(info);
-    printf("Listening on port: %d\n", port);
+    printf("Listening on port: %d\n", port); 
 
-    fd_set readSet;
-    FD_ZERO(&readSet);
-    FD_SET(listenSocket, &readSet);
+    fd_set readSet; 
+    FD_ZERO(&readSet); 
+    FD_SET(listenSocket, &readSet); 
 
     printf("Waiting...\n\n");
 
@@ -194,8 +200,8 @@ void ServerCode(void)
         }
 
         struct timeval timeout;
-        timeout.tv_sec = 1;  // Set the timeout (1 second in this example)
-        timeout.tv_usec = 0;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 1000;
 
         int selectResult = select(maxSocket + 1, &tempSet, nullptr, nullptr, &timeout);
 
@@ -223,9 +229,8 @@ void ServerCode(void)
                         SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
                         if (ComSocket == INVALID_SOCKET)
                         {
-                            printf("DEBUG// Accept function incorrect\n"); break;
+                            printf("DEBUG// Accept function incorrect\n"); continue;
                         }
-
                         if (tempSet.fd_count >= maxClients)
                         {
                             printf("DEBUG// Maximum number of clients reached. Connection rejected.\n");
