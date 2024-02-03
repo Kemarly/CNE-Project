@@ -25,8 +25,48 @@ int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
 void HandleClient(SOCKET clientSocket, fd_set& readSet);
 fd_set readyset, masterset;
 void ServerCode(void);
+INT MAX_CLIENTS = 5;
+SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
+unordered_map<string, string> userCredentials;
 
+string GetHelpMessage()
+{
+    string helpMessage = "Available commands:\n";
+    helpMessage += "~help - Display available commands\n";
+    helpMessage += "~register - username password - Register a new user\n";
+    helpMessage += "~login - username password - Login with user account\n";
+    helpMessage += "~send - Display available commands\n";
+    helpMessage += "~getlist - Display available commands\n";
+    helpMessage += "~logout - Logs out of user account\n";
 
+    return helpMessage;
+}
+int RegisterUser(const string& username, const string& password)
+{
+    if (userCredentials.size() >= MAX_CLIENTS)
+    {
+        /*string CAP_REACHED = "Max Client Capacity.";
+        int CAPACITY_REACHED = stoi(CAP_REACHED);
+        return CAPACITY_REACHED;*/
+        printf("Max User Capacity");
+        return -1;
+    }
+
+    // Check if the username is already taken
+    if (userCredentials.find(username) != userCredentials.end())
+    {
+        /*string USER_TAKEN = "Max Client Capacity.";
+        int USERNAME_TAKEN = stoi(USER_TAKEN);
+        return USERNAME_TAKEN;*/
+        printf("User taken");
+        return -2;
+    }
+    // Register the user
+    userCredentials[username] = password;
+    printf("Success\n");
+    return 0;
+}
 int tcp_recv_whole(SOCKET s, char* buf, int len)
 {
     int total = 0;
@@ -79,7 +119,40 @@ void BroadcastMessage(const string& message)
         }
     }
 }
+void ProcessLogin(const string& username, const string& password, SOCKET clientSocket)
+{
+    if (userCredentials.find(username) != userCredentials.end())
+    {
+        // Check if the password matches
+        if (userCredentials[username] == password)
+        {
+            printf("Welcome %s\n", username.c_str());
+        }
+        else
+        {
+            printf("Incorrect password");
+        }
+    }
+    else
+    {
+        printf("Username not found");
+        return;
+    }
+}
 
+string GetClientList()
+{
+    string clientList;
+    for (const auto& pair : userCredentials)
+    {
+        clientList += pair.first + ",";
+    }
+    if (!clientList.empty())
+    {
+        clientList.pop_back();
+    }
+    return clientList;
+}
 void HandleCommand(const string& command)
 {
     if (command.empty()) return;
@@ -89,16 +162,41 @@ void HandleCommand(const string& command)
     {
     case '~':
         if (args.find("help") != string::npos) {
-            // ~help command
+            string helpMessage = GetHelpMessage();
+            const char* helpChar = helpMessage.c_str();
+            delete[] helpChar;
+            printf("Success\n");
         }
-        else if (args.find("register") == 0) {
-            // ~register command
+        else if (args.find("register") == 0)
+        {
+            size_t spacePos = args.find(' ');
+            if (spacePos != string::npos)
+            {
+                string username = args.substr(9, spacePos - 9);
+                string password = args.substr(spacePos + 1);
+                RegisterUser(username, password);
+            }
         }
         else if (args.find("login") == 0) {
-            // ~login command
+            size_t spacePos = args.find(' ');
+            if (spacePos != string::npos)
+            {
+                string username = args.substr(6, spacePos - 6);
+                string password = args.substr(spacePos + 1);
+                ProcessLogin(username,password, clientSocket);
+            }
         }
         else if (args.find("send") == 0) {
-            // ~send command
+            size_t spacePos = args.find(' ');
+            if (spacePos != string::npos)
+            {
+                string username = args.substr(5);
+                // Get the client list
+                string clientList = GetClientList();
+
+                // Send the client list to the specified client
+                // Use the username to identify the client's socket and send the message using tcp_send_whole
+            }
         }
         else if (args.find("getlist") == 0) {
             //~getlist command
@@ -117,7 +215,7 @@ void HandleCommand(const string& command)
     }
 }
 
-void HandleClient(SOCKET clientSocket, fd_set& readSet, string& command)
+void HandleClient(SOCKET clientSocket, fd_set& readSet)
 {
     const char* welcomeMessage = "Welcome to the Server!\n Please enter your commands starting with (~): ";
     tcp_send_whole(clientSocket, welcomeMessage, strlen(welcomeMessage));
@@ -153,7 +251,8 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet, string& command)
             printf("\n\n");
 
             // Set the command variable with the received message
-            command = string(buffer); 
+            string command = string(buffer);
+            HandleCommand(command);
         }
         delete[] buffer;
     }
@@ -270,9 +369,7 @@ void ServerCode(void)
             if (currentSocket != listenSocket && FD_ISSET(currentSocket, &readyset))
             {
                 //Handle client message
-                string command;
-                HandleClient(currentSocket, masterset, command);
-                HandleCommand(command);
+                HandleClient(currentSocket, masterset);
             }
         }
     }
@@ -297,6 +394,7 @@ int main()
     }
     return EXIT_SUCCESS;
 }
+
 #define UDP_BROADCAST_PORT 12345 // Choose a  port number
 #define UDP_BROADCAST_INTERVAL 10 // Interval in seconds
 
