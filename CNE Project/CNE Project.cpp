@@ -117,7 +117,7 @@ void HandleCommand(const string& command)
     }
 }
 
-void HandleClient(SOCKET clientSocket, fd_set& readSet)
+void HandleClient(SOCKET clientSocket, fd_set& readSet, string& command)
 {
     const char* welcomeMessage = "Welcome to the Server!\n Please enter your commands starting with (~): ";
     tcp_send_whole(clientSocket, welcomeMessage, strlen(welcomeMessage));
@@ -139,7 +139,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
         if ((result == SOCKET_ERROR) || (result == 0))
         {
             std::lock_guard<std::mutex> lock(clientMutex);
-            printf("  recv is incorrect in handle 1\n");
+            printf("  Client stopped connection\n");
             FD_CLR(clientSocket, &readSet);
             closesocket(clientSocket);
             delete[] buffer;
@@ -151,6 +151,9 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
             printf("\n\n");
             printf("%s", buffer);
             printf("\n\n");
+
+            // Set the command variable with the received message
+            command = string(buffer); 
         }
         delete[] buffer;
     }
@@ -246,6 +249,11 @@ void ServerCode(void)
             else if (masterset.fd_count < FD_SETSIZE)
             {
                 cout << "New connection accepted." << endl;
+
+                // Send the welcome message
+                const char* welcomeMessage = "Welcome to the Server!\n Please enter your commands starting with (~): ";
+                tcp_send_whole(clientSocket, welcomeMessage, strlen(welcomeMessage));
+
                 FD_SET(clientSocket, &masterset);
             }
             else
@@ -262,7 +270,9 @@ void ServerCode(void)
             if (currentSocket != listenSocket && FD_ISSET(currentSocket, &readyset))
             {
                 //Handle client message
-                HandleClient(currentSocket, masterset);
+                string command;
+                HandleClient(currentSocket, masterset, command);
+                HandleCommand(command);
             }
         }
     }
