@@ -23,7 +23,7 @@ mutex clientMutex;
 int tcp_recv_whole(SOCKET s, char* buf, int len);
 int tcp_send_whole(SOCKET skSocket, const char* data, uint16_t length);
 void HandleClient(SOCKET clientSocket, fd_set& readSet);
-
+fd_set readyset, masterset; 
 void ServerCode(void);
 int main()
 {
@@ -187,109 +187,90 @@ void ServerCode(void)
     freeaddrinfo(info);
     printf("Listening on port: %d\n", port); 
 
-    fd_set readSet; 
-    FD_ZERO(&readSet); 
-    FD_SET(listenSocket, &readSet); 
+    fd_set readyset, masterset;
+    FD_ZERO(&masterset);
+    FD_SET(listenSocket, &masterset);
+    FD_ZERO(&readyset);
 
     printf("Waiting...\n\n");
 
     while (true)
     {
-        fd_set tempSet = readSet;
-        int maxSocket = listenSocket;
+        readyset = masterset;
 
-        for (u_int i = 0; i < tempSet.fd_count; ++i)
-        {
-            if (tempSet.fd_array[i] > maxSocket) maxSocket = tempSet.fd_array[i];
-        }
+        int temp = select(0, &readyset, NULL, NULL, NULL);
 
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 1000;
-
-        int selectResult = select(maxSocket + 1, &tempSet, nullptr, nullptr, &timeout);
-
-        if (selectResult == SOCKET_ERROR)
+        if (temp == SOCKET_ERROR)
         {
             printf("  Select function incorrect\n");
             break;
         }
 
-        if (selectResult == 0)
+        if (FD_ISSET(listenSocket, &readyset))
         {
-            // Timeout
-            continue;
+            // New connection
+            SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
+            if (ComSocket == INVALID_SOCKET)
+            {
+                printf("  Accept function incorrect\n");
+            }
+            else if (FD_SETSIZE > masterset.fd_count)
+            {
+                printf("  New connection accepted\n");
+                FD_SET(ComSocket, &masterset);
+                thread(HandleClient, ComSocket, std::ref(masterset)).detach();
+            }
+            else
+            {
+                printf("  Maximum number of clients reached. Connection rejected.\n");
+                closesocket(ComSocket);
+            }
         }
 
-        if (selectResult > 0)
+        for (u_int i = 0; i < masterset.fd_count; ++i)
         {
-            for (u_int i = 0; i < tempSet.fd_count; ++i)
+            SOCKET currentSocket = masterset.fd_array[i];
+
+            if (FD_ISSET(currentSocket, &readyset))
             {
-                if (FD_ISSET(tempSet.fd_array[i], &tempSet))
+                // Existing client data
+                uint8_t size = 0;
+
+                result = tcp_recv_whole(currentSocket, (char*)&size, 1);
+                if ((result == SOCKET_ERROR) || (result == 0))
                 {
-                    if (tempSet.fd_array[i] == listenSocket)
+                    std::lock_guard<std::mutex> lock(clientMutex);
+                    printf("  recv is incorrect\n");
+                    FD_CLR(currentSocket, &masterset);
+                    closesocket(currentSocket);
+                }
+                else
+                {
+                    char* buffer = new char[size];
+                    result = tcp_recv_whole(currentSocket, buffer, size);
+                    if ((result == SOCKET_ERROR) || (result == 0))
                     {
-                        // New connection
-                        SOCKET ComSocket = accept(listenSocket, nullptr, nullptr);
-                        if (ComSocket == INVALID_SOCKET)
-                        {
-                            printf("  Accept function incorrect\n"); continue;
-                        }
-                        if (tempSet.fd_count >= maxClients)
-                        {
-                            printf("  Maximum number of clients reached. Connection rejected.\n");
-                            closesocket(ComSocket);
-                        }
-                        else
-                        {
-                            printf("  New connection accepted\n");
-                            FD_SET(ComSocket, &readSet);
-                            thread(HandleClient, ComSocket, std::ref(readSet)).detach();
-                        }
+                        std::lock_guard<std::mutex> lock(clientMutex);
+                        printf("  recv is incorrect\n");
+                        FD_CLR(currentSocket, &masterset);
+                        closesocket(currentSocket);
+                        delete[] buffer;
                     }
                     else
                     {
-                        // Existing client data
-                        SOCKET currentSocket = tempSet.fd_array[i];
-                        uint8_t size = 0;
-
-                        result = tcp_recv_whole(currentSocket, (char*)&size, 1);
-                        if ((result == SOCKET_ERROR) || (result == 0))
-                        {
-                            std::lock_guard<std::mutex> lock(clientMutex);
-                            printf("  recv is incorrect\n");
-                            FD_CLR(currentSocket, &readSet);
-                            closesocket(currentSocket);
-                            break;
-                        }
-                        char* buffer = new char[size];
-                        result = tcp_recv_whole(currentSocket, buffer, size);
-                        if ((result == SOCKET_ERROR) || (result == 0))
-                        {
-                            std::lock_guard<std::mutex> lock(clientMutex);
-                            printf("  recv is incorrect\n");
-                            FD_CLR(currentSocket, &readSet);
-                            closesocket(currentSocket);
-                            delete[] buffer;
-                            break;
-                        }
-
-                        {
-                            std::lock_guard<std::mutex> lock(clientMutex);
-                            printf("  Received a message from a client\n");
-                            printf("\n\n");
-                            printf(buffer);
-                            printf("\n\n");
-                        }
-
+                        std::lock_guard<std::mutex> lock(clientMutex);
+                        printf("  Received a message from a client\n");
+                        printf("\n\n");
+                        printf(buffer);
+                        printf("\n\n");
                         delete[] buffer;
                     }
                 }
             }
-
-            // close both sockets
-            shutdown(listenSocket, SD_BOTH);
-            closesocket(listenSocket);
         }
     }
+
+    // close both sockets
+    shutdown(listenSocket, SD_BOTH);
+    closesocket(listenSocket);
 }
