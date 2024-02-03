@@ -84,7 +84,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
         if ((result == SOCKET_ERROR) || (result == 0))
         {
             std::lock_guard<std::mutex> lock(clientMutex);
-            printf("  recv is incorrect\n");
+            printf("  recv is incorrect in handle\n");
             FD_CLR(clientSocket, &readSet);
             closesocket(clientSocket);
             break;
@@ -95,7 +95,7 @@ void HandleClient(SOCKET clientSocket, fd_set& readSet)
         if ((result == SOCKET_ERROR) || (result == 0))
         {
             std::lock_guard<std::mutex> lock(clientMutex);
-            printf("  recv is incorrect\n");
+            printf("  recv is incorrect in handle\n");
             FD_CLR(clientSocket, &readSet);
             closesocket(clientSocket);
             delete[] buffer;
@@ -240,7 +240,7 @@ void ServerCode(void)
                 if ((result == SOCKET_ERROR) || (result == 0))
                 {
                     std::lock_guard<std::mutex> lock(clientMutex);
-                    printf("  recv is incorrect\n");
+                    printf("  recv is correct\n");
                     FD_CLR(currentSocket, &masterset);
                     closesocket(currentSocket);
                 }
