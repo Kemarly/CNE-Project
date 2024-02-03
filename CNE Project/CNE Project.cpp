@@ -182,10 +182,8 @@ void ServerCode(void)
     cout << "Listening on port: " << port << endl;
 
     // Set up the file descriptor sets for multiplexing
-    fd_set readyset, masterset;
     FD_ZERO(&masterset);
     FD_SET(listenSocket, &masterset);
-    FD_ZERO(&readyset);
 
     cout << "Waiting for connections..." << endl;
 
@@ -228,7 +226,7 @@ void ServerCode(void)
         {
             SOCKET currentSocket = masterset.fd_array[i];
 
-            if (FD_ISSET(currentSocket, &readyset))
+            if (currentSocket != listenSocket && FD_ISSET(currentSocket, &readyset))
             {
                 // Handle the client's message
                 HandleClient(currentSocket, masterset);
